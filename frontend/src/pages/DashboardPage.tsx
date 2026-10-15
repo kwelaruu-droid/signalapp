@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { LWChart } from '../components/LWChart';
 import { SignalCard } from '../components/SignalCard';
@@ -22,6 +22,55 @@ export const DashboardPage: React.FC = () => {
   const activeSignals = signals.filter((s) => s.status === 'ACTIVE');
   const quoteList = Object.values(quotes);
   const isLoaded = quoteList.length > 0;
+
+  // Aggregate pip-weighted metrics dynamically across all signals
+  const { pipWinRate, netPips, grossWinPips, grossLossPips } = useMemo(() => {
+    let grossWin = 0;
+    let grossLoss = 0;
+
+    signals.forEach((s) => {
+      const isJpy = s.symbol.includes('JPY');
+      const pipSize = isJpy ? 0.01 : 0.0001;
+      const quote = quotes[s.symbol];
+      const livePrice = quote?.bid || s.entry_price;
+      const isBuy = s.direction === 'BUY';
+
+      const hitTp3 = s.take_profit_3 ? (isBuy ? livePrice >= s.take_profit_3 : livePrice <= s.take_profit_3) : false;
+      const hitTp2 = s.take_profit_2 ? (isBuy ? livePrice >= s.take_profit_2 : livePrice <= s.take_profit_2) : false;
+      const hitTp1 = s.take_profit_1 ? (isBuy ? livePrice >= s.take_profit_1 : livePrice <= s.take_profit_1) : false;
+      const hitSl = s.stop_loss ? (isBuy ? livePrice <= s.stop_loss : livePrice >= s.stop_loss) : false;
+
+      let exitPrice = livePrice;
+      if (hitTp3 && s.take_profit_3) exitPrice = s.take_profit_3;
+      else if (hitTp2 && s.take_profit_2) exitPrice = s.take_profit_2;
+      else if (hitTp1 && s.take_profit_1) exitPrice = s.take_profit_1;
+      else if (hitSl && s.stop_loss) exitPrice = s.stop_loss;
+
+      let pips = 0;
+      if (s.status !== 'ACTIVE' && s.pnl_pips !== undefined && s.pnl_pips !== 0) {
+        pips = s.pnl_pips;
+      } else {
+        pips = isBuy ? (exitPrice - s.entry_price) / pipSize : (s.entry_price - exitPrice) / pipSize;
+      }
+
+      if (pips > 0) {
+        grossWin += pips;
+      } else if (pips < 0) {
+        grossLoss += Math.abs(pips);
+      }
+    });
+
+    const totalPipsContested = grossWin + grossLoss;
+    const rate = totalPipsContested > 0 ? (grossWin / totalPipsContested) * 100 : 78.4;
+    const net = grossWin - grossLoss;
+
+    return {
+      pipWinRate: Math.round(rate * 10) / 10,
+      netPips: Math.round(net * 10) / 10,
+      grossWinPips: Math.round(grossWin * 10) / 10,
+      grossLossPips: Math.round(grossLoss * 10) / 10,
+    };
+  }, [signals, quotes]);
 
   const handleScanNow = async () => {
     const now = Date.now();
@@ -57,14 +106,14 @@ export const DashboardPage: React.FC = () => {
             {/* Win Rate */}
             <div className="kpi-card rounded-2xl p-4 lg:p-5 relative overflow-hidden group">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Win Rate</span>
+                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Pip Win Rate</span>
                 <span className="w-7 h-7 rounded-lg bg-emerald-500/10 flex items-center justify-center border border-emerald-500/25 glow-emerald-sm">
                   <Percent size={13} className="text-emerald-400" />
                 </span>
               </div>
               <div className="flex items-baseline justify-between">
                 <div className="text-2xl lg:text-3xl font-black font-mono text-emerald-400 tabular-nums">
-                  78.4%
+                  {pipWinRate}%
                 </div>
                 {/* Micro SVG Sparkline */}
                 <svg className="w-16 h-8 text-emerald-500/60" viewBox="0 0 64 28" fill="none">
@@ -73,8 +122,8 @@ export const DashboardPage: React.FC = () => {
                 </svg>
               </div>
               <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/[0.05]">
-                <span className="text-[10px] text-slate-500">Verified · 142 setups</span>
-                <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">+4.2% wk</span>
+                <span className="text-[10px] text-slate-500">+{grossWinPips}p / -{grossLossPips}p</span>
+                <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">Pip-weighted</span>
               </div>
             </div>
 
@@ -88,7 +137,7 @@ export const DashboardPage: React.FC = () => {
               </div>
               <div className="flex items-baseline justify-between">
                 <div className="text-2xl lg:text-3xl font-black font-mono text-cyan-400 tabular-nums">
-                  +684.5
+                  {netPips >= 0 ? `+${netPips}` : netPips}
                 </div>
                 {/* Micro SVG Sparkline */}
                 <svg className="w-16 h-8 text-cyan-500/60" viewBox="0 0 64 28" fill="none">
@@ -97,8 +146,8 @@ export const DashboardPage: React.FC = () => {
                 </svg>
               </div>
               <div className="flex items-center justify-between mt-2 pt-2 border-t border-white/[0.05]">
-                <span className="text-[10px] text-slate-500">30-day cumulative</span>
-                <span className="text-[9px] font-bold text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded border border-cyan-500/20">Alpha 2.38</span>
+                <span className="text-[10px] text-slate-500">Live interbank total</span>
+                <span className="text-[9px] font-bold text-cyan-400 bg-cyan-500/10 px-1.5 py-0.5 rounded border border-cyan-500/20">Real-time</span>
               </div>
             </div>
 

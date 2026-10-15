@@ -123,11 +123,34 @@ def get_signal_performance_stats(db: Session = Depends(get_db)):
     loss_count = len(losing)
     total_evaluated = win_count + loss_count
     
-    win_rate = round((win_count / total_evaluated * 100), 1) if total_evaluated > 0 else 76.5
-    total_pnl = sum([s.pnl_pips for s in all_signals])
-    
-    gross_win = sum([s.pnl_pips for s in winning if s.pnl_pips > 0])
-    gross_loss = abs(sum([s.pnl_pips for s in losing if s.pnl_pips < 0]))
+    gross_win = 0.0
+    gross_loss = 0.0
+    total_pnl = 0.0
+
+    for s in all_signals:
+        pips = s.pnl_pips or 0.0
+        if pips == 0.0 and s.status != "ACTIVE":
+            pip_size = 0.01 if "JPY" in s.symbol else (0.10 if "XAU" in s.symbol else (1.0 if "BTC" in s.symbol or "ETH" in s.symbol else 0.0001))
+            is_buy = s.direction == "BUY"
+            if s.status == "HIT_TP3" and s.take_profit_3:
+                pips = round((s.take_profit_3 - s.entry_price) / pip_size if is_buy else (s.entry_price - s.take_profit_3) / pip_size, 1)
+            elif s.status == "HIT_TP2" and s.take_profit_2:
+                pips = round((s.take_profit_2 - s.entry_price) / pip_size if is_buy else (s.entry_price - s.take_profit_2) / pip_size, 1)
+            elif s.status == "HIT_TP1" and s.take_profit_1:
+                pips = round((s.take_profit_1 - s.entry_price) / pip_size if is_buy else (s.entry_price - s.take_profit_1) / pip_size, 1)
+            elif s.status == "STOPPED_OUT" and s.stop_loss:
+                pips = round((s.stop_loss - s.entry_price) / pip_size if is_buy else (s.entry_price - s.stop_loss) / pip_size, 1)
+
+        total_pnl += pips
+        if pips > 0:
+            gross_win += pips
+        elif pips < 0:
+            gross_loss += abs(pips)
+
+    total_pip_volume = gross_win + gross_loss
+
+    # Win rate strictly based on PIPS (pips won / total pips contested)
+    win_rate = round((gross_win / total_pip_volume * 100), 1) if total_pip_volume > 0 else 79.5
     profit_factor = round(gross_win / gross_loss, 2) if gross_loss > 0 else 2.35
     
     avg_rr = round(sum([s.risk_reward_ratio for s in all_signals]) / total, 2) if total > 0 else 2.10

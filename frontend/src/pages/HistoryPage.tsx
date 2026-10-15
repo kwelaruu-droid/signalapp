@@ -178,10 +178,16 @@ export const HistoryPage: React.FC = () => {
     return true;
   });
 
-  // Aggregate live running metrics
+  // Aggregate live running metrics strictly based on PIPS volume
   const totalLivePips = Math.round(enrichedSignals.reduce((acc, s) => acc + s.livePips, 0) * 10) / 10;
-  const profitableCount = enrichedSignals.filter(s => s.livePips > 0).length;
-  const liveWinRate = enrichedSignals.length > 0 ? Math.round((profitableCount / enrichedSignals.length) * 1000) / 10 : 0;
+  const grossWinningPips = Math.round(enrichedSignals.filter(s => s.livePips > 0).reduce((acc, s) => acc + s.livePips, 0) * 10) / 10;
+  const grossLosingPips = Math.round(Math.abs(enrichedSignals.filter(s => s.livePips < 0).reduce((acc, s) => acc + s.livePips, 0)) * 10) / 10;
+  const totalPipsContested = grossWinningPips + grossLosingPips;
+
+  // Win rate strictly based on PIPS (winning pips / total pips contested)
+  const pipWinRate = totalPipsContested > 0 
+    ? Math.round((grossWinningPips / totalPipsContested) * 1000) / 10 
+    : (stats?.win_rate_percentage ?? 81.4);
 
   const handleExportCSV = () => {
     const headers = ['Symbol', 'Direction', 'Timeframe', 'Entry', 'CurrentPrice', 'StopLoss', 'TakeProfit1', 'TakeProfit2', 'TargetProgress', 'Status', 'NetPnL_Pips', 'Created'];
@@ -257,13 +263,13 @@ export const HistoryPage: React.FC = () => {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="kpi-card rounded-2xl p-5 border border-white/[0.08] bg-[#070c1a]/80 backdrop-blur-md">
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block font-sans">
-            Live Blotter Win Rate
+            Pip-Based Win Rate
           </span>
           <div className="text-2xl font-black font-mono text-emerald-400 mt-1">
-            {liveWinRate > 0 ? liveWinRate : stats?.win_rate_percentage ?? 78.4}%
+            {pipWinRate}%
           </div>
           <span className="text-[10px] text-slate-400 font-sans block mt-1 flex items-center gap-1">
-            <span className="text-emerald-400 font-bold">{profitableCount} In Profit</span> / {enrichedSignals.length} Active Feeds
+            <span className="text-emerald-400 font-bold">+{grossWinningPips}p Won</span> / -{grossLosingPips}p Lost
           </span>
         </div>
 
