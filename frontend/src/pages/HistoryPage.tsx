@@ -65,10 +65,39 @@ export const HistoryPage: React.FC = () => {
     const pipSize = getPipSize(s.symbol);
     const isBuy = s.direction === 'BUY';
 
-    // Live Floating or Final PnL in pips
+    // Check each target milestone from highest (TP3) down to SL
+    const hitTp3 = (s.take_profit_3 && ((isBuy && livePrice >= s.take_profit_3) || (!isBuy && livePrice <= s.take_profit_3))) || s.status === 'HIT_TP3';
+    const hitTp2 = (s.take_profit_2 && ((isBuy && livePrice >= s.take_profit_2) || (!isBuy && livePrice <= s.take_profit_2))) || s.status === 'HIT_TP2';
+    const hitTp1 = ((isBuy && livePrice >= s.take_profit_1) || (!isBuy && livePrice <= s.take_profit_1)) || s.status === 'HIT_TP1';
+    const hitSl = ((isBuy && livePrice <= s.stop_loss) || (!isBuy && livePrice >= s.stop_loss)) || s.status === 'STOPPED_OUT';
+
+    // Select the highest target reached: TP3 > TP2 > TP1
+    let exitTargetPrice = livePrice;
+    let highestHitStatus: TradingSignal['status'] = s.status;
+
+    if (hitSl) {
+      exitTargetPrice = s.stop_loss;
+      highestHitStatus = 'STOPPED_OUT';
+    } else if (hitTp3) {
+      exitTargetPrice = s.take_profit_3!;
+      highestHitStatus = 'HIT_TP3';
+    } else if (hitTp2) {
+      exitTargetPrice = s.take_profit_2!;
+      highestHitStatus = 'HIT_TP2';
+    } else if (hitTp1) {
+      exitTargetPrice = s.take_profit_1;
+      highestHitStatus = 'HIT_TP1';
+    }
+
+    // Pips calculated against the highest target hit (or live floating if active)
     let livePips = 0;
     if (s.status !== 'ACTIVE' && s.pnl_pips !== 0 && s.pnl_pips !== undefined) {
       livePips = s.pnl_pips;
+    } else if (hitTp3 || hitTp2 || hitTp1 || hitSl) {
+      livePips = isBuy
+        ? (exitTargetPrice - s.entry_price) / pipSize
+        : (s.entry_price - exitTargetPrice) / pipSize;
+      livePips = Math.round(livePips * 10) / 10;
     } else {
       livePips = isBuy 
         ? (livePrice - s.entry_price) / pipSize
@@ -76,45 +105,45 @@ export const HistoryPage: React.FC = () => {
       livePips = Math.round(livePips * 10) / 10;
     }
 
-    // Target Progress Calculation (% reached towards TP1)
-    const tp1Dist = Math.abs(s.take_profit_1 - s.entry_price);
+    // Target Progress Calculation (% reached towards furthest target)
+    const finalTarget = s.take_profit_3 || s.take_profit_2 || s.take_profit_1;
+    const finalLabel = s.take_profit_3 ? 'TP3' : s.take_profit_2 ? 'TP2' : 'TP1';
+    const totalDist = Math.abs(finalTarget - s.entry_price);
     const currDist = isBuy ? (livePrice - s.entry_price) : (s.entry_price - livePrice);
     let progressPct = 0;
-    if (tp1Dist > 0) {
-      progressPct = Math.round((currDist / tp1Dist) * 100);
+    if (totalDist > 0) {
+      progressPct = Math.round((currDist / totalDist) * 100);
     }
 
-    // Determine target milestone state
+    // Determine milestone label & colors
     let reachLabel = 'PENDING';
     let reachColor = 'text-slate-400 bg-slate-800/60 border-white/5';
     let progressBarColor = 'bg-cyan-500';
 
-    if (s.status === 'HIT_TP3' || (s.take_profit_3 && ((isBuy && livePrice >= s.take_profit_3) || (!isBuy && livePrice <= s.take_profit_3)))) {
+    if (hitTp3) {
       reachLabel = 'TP3 HIT (MAX)';
       reachColor = 'text-purple-300 bg-purple-500/20 border-purple-500/30';
       progressBarColor = 'bg-purple-500';
-      progressPct = Math.max(progressPct, 100);
-    } else if (s.status === 'HIT_TP2' || (s.take_profit_2 && ((isBuy && livePrice >= s.take_profit_2) || (!isBuy && livePrice <= s.take_profit_2)))) {
+      progressPct = 100;
+    } else if (hitTp2) {
       reachLabel = 'TP2 REACHED';
       reachColor = 'text-emerald-300 bg-emerald-500/20 border-emerald-500/30';
       progressBarColor = 'bg-emerald-400';
-      progressPct = Math.max(progressPct, 100);
-    } else if (s.status === 'HIT_TP1' || progressPct >= 100) {
-      reachLabel = 'TP1 HIT (100%)';
+      progressPct = Math.max(progressPct, s.take_profit_3 ? 66 : 100);
+    } else if (hitTp1) {
+      reachLabel = 'TP1 HIT';
       reachColor = 'text-emerald-400 bg-emerald-500/15 border-emerald-500/30';
       progressBarColor = 'bg-emerald-500';
-      progressPct = Math.max(progressPct, 100);
-    } else if (s.status === 'STOPPED_OUT' || (isBuy ? livePrice <= s.stop_loss : livePrice >= s.stop_loss)) {
+      progressPct = Math.max(progressPct, s.take_profit_2 ? 50 : 100);
+    } else if (hitSl) {
       reachLabel = 'STOPPED OUT';
       reachColor = 'text-rose-400 bg-rose-500/15 border-rose-500/30';
       progressBarColor = 'bg-rose-500';
     } else if (progressPct > 0) {
-      reachLabel = `${progressPct}% to TP1`;
+      reachLabel = `${progressPct}% to ${finalLabel}`;
       reachColor = 'text-cyan-400 bg-cyan-500/15 border-cyan-500/30';
       progressBarColor = 'bg-cyan-400';
     } else {
-      const slDist = Math.abs(s.entry_price - s.stop_loss);
-      const slPips = slDist / pipSize;
       reachLabel = `Pullback (${livePips}p)`;
       reachColor = 'text-amber-400 bg-amber-500/15 border-amber-500/30';
       progressBarColor = 'bg-amber-500';
@@ -124,6 +153,10 @@ export const HistoryPage: React.FC = () => {
       ...s,
       livePrice,
       livePips,
+      exitTargetPrice,
+      highestHitStatus,
+      finalTarget,
+      finalLabel,
       progressPct: Math.max(0, Math.min(100, progressPct)),
       rawProgressPct: progressPct,
       reachLabel,
@@ -313,7 +346,7 @@ export const HistoryPage: React.FC = () => {
                 <th className="py-3 px-4 font-bold">Direction</th>
                 <th className="py-3 px-4 font-bold">Entry Level</th>
                 <th className="py-3 px-4 font-bold">Live Interbank</th>
-                <th className="py-3 px-4 font-bold">Target 1 (TP1)</th>
+                <th className="py-3 px-4 font-bold">Target (TP1-3)</th>
                 <th className="py-3 px-4 font-bold min-w-[200px]">How Far It Has Reached</th>
                 <th className="py-3 px-4 font-bold">Status</th>
                 <th className="py-3 px-4 font-bold text-right">Net PnL</th>
@@ -357,9 +390,12 @@ export const HistoryPage: React.FC = () => {
                       </span>
                     </td>
 
-                    {/* Take Profit 1 Target */}
-                    <td className="py-3.5 px-4 text-emerald-400/90 font-medium">
-                      {s.take_profit_1}
+                    {/* Take Profit Target (TP1 - TP3) */}
+                    <td className="py-3.5 px-4 font-medium">
+                      <div className="flex flex-col">
+                        <span className="text-emerald-400 font-bold">{s.finalTarget}</span>
+                        <span className="text-[9px] text-slate-500 font-sans">{s.finalLabel} (TP1: {s.take_profit_1})</span>
+                      </div>
                     </td>
 
                     {/* How Far It Has Reached (Progress Bar & Milestone) */}
@@ -382,7 +418,7 @@ export const HistoryPage: React.FC = () => {
                         </div>
                         <div className="flex items-center justify-between text-[9px] text-slate-500 font-sans">
                           <span>Entry: {s.entry_price}</span>
-                          <span className="text-emerald-400">Target: {s.take_profit_1}</span>
+                          <span className="text-emerald-400">Target: {s.finalTarget} ({s.finalLabel})</span>
                         </div>
                       </div>
                     </td>
@@ -400,7 +436,7 @@ export const HistoryPage: React.FC = () => {
                         {isWin ? '+' : ''}{s.livePips} pips
                       </div>
                       <div className="text-[9px] text-slate-500 font-sans">
-                        {isWin ? 'Floating Gain' : 'Floating Retracement'}
+                        {s.highestHitStatus.includes('HIT_TP') ? `Locked at ${s.highestHitStatus.replace('HIT_', '')}` : isWin ? 'Floating Gain' : 'Floating Retracement'}
                       </div>
                     </td>
 
@@ -409,16 +445,16 @@ export const HistoryPage: React.FC = () => {
                       <div className="flex items-center justify-center gap-1.5">
                         {s.status === 'ACTIVE' && (
                           <button
-                            onClick={() => handleCloseSignal(s.id, s.rawProgressPct >= 100 ? 'HIT_TP1' : s.livePips < 0 ? 'STOPPED_OUT' : 'CLOSED', s.livePips)}
+                            onClick={() => handleCloseSignal(s.id, s.highestHitStatus !== 'ACTIVE' ? s.highestHitStatus : 'CLOSED', s.livePips)}
                             className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-all active:scale-95 flex items-center gap-1 ${
-                              s.rawProgressPct >= 100
+                              s.highestHitStatus.includes('HIT_TP')
                                 ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border-emerald-500/40 glow-emerald-sm animate-pulse'
                                 : 'bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white border-white/10'
                             }`}
                             title="Close active signal and lock in PnL"
                           >
-                            <CheckCheck size={11} className={s.rawProgressPct >= 100 ? 'text-emerald-400' : 'text-slate-400'} />
-                            <span>{s.rawProgressPct >= 100 ? 'Lock TP' : 'Close'}</span>
+                            <CheckCheck size={11} className={s.highestHitStatus.includes('HIT_TP') ? 'text-emerald-400' : 'text-slate-400'} />
+                            <span>{s.highestHitStatus.includes('HIT_TP') ? `Lock ${s.highestHitStatus.replace('HIT_', '')}` : 'Close'}</span>
                           </button>
                         )}
                         <button

@@ -181,10 +181,22 @@ async def close_signal_endpoint(
     if pnl is not None:
         realized_pips = pnl
     else:
-        if sig.direction == "BUY":
-            realized_pips = round((curr_price - sig.entry_price) / pip_size, 1)
+        # Determine exit price based on the highest target hit
+        if status == "HIT_TP3" and sig.take_profit_3:
+            exit_price = sig.take_profit_3
+        elif status == "HIT_TP2" and sig.take_profit_2:
+            exit_price = sig.take_profit_2
+        elif status == "HIT_TP1":
+            exit_price = sig.take_profit_1
+        elif status == "STOPPED_OUT":
+            exit_price = sig.stop_loss
         else:
-            realized_pips = round((sig.entry_price - curr_price) / pip_size, 1)
+            exit_price = curr_price
+
+        if sig.direction == "BUY":
+            realized_pips = round((exit_price - sig.entry_price) / pip_size, 1)
+        else:
+            realized_pips = round((sig.entry_price - exit_price) / pip_size, 1)
 
     sig.status = status or "CLOSED"
     sig.pnl_pips = realized_pips

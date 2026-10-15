@@ -123,16 +123,33 @@ export const App: React.FC = () => {
       const isCrypto = s.symbol.includes('BTC') || s.symbol.includes('ETH');
       const pipUnit = isJpy ? 0.01 : isGold ? 0.10 : isCrypto ? 1.0 : 0.0001;
 
+      // Check from highest target reached (TP3 -> TP2 -> TP1) down to Stop Loss
+      const hitTp3 = s.take_profit_3 && ((isBuy && q.mid >= s.take_profit_3) || (!isBuy && q.mid <= s.take_profit_3));
+      const hitTp2 = s.take_profit_2 && ((isBuy && q.mid >= s.take_profit_2) || (!isBuy && q.mid <= s.take_profit_2));
       const hitTp1 = (isBuy && q.mid >= s.take_profit_1) || (!isBuy && q.mid <= s.take_profit_1);
       const hitSl = (isBuy && q.mid <= s.stop_loss) || (!isBuy && q.mid >= s.stop_loss);
 
-      if (hitTp1) {
+      if (hitTp3) {
+        const livePips = Math.round(Math.abs(s.take_profit_3! - s.entry_price) / pipUnit * 10) / 10;
+        updateSignalStatus(s.id, 'HIT_TP3', livePips);
+        soundFx.playSignalChime();
+        notifService.signalAlert(s.symbol, 'TARGET 3 HIT (MAX)', 100);
+        notifService.hapticSignal();
+        addToast('🎯 Target 3 (Max) Hit!', `${s.symbol} reached TP3 ${s.take_profit_3} (+${livePips} pips)! Ready to be closed.`, 'success');
+      } else if (hitTp2) {
+        const livePips = Math.round(Math.abs(s.take_profit_2! - s.entry_price) / pipUnit * 10) / 10;
+        updateSignalStatus(s.id, 'HIT_TP2', livePips);
+        soundFx.playSignalChime();
+        notifService.signalAlert(s.symbol, 'TARGET 2 REACHED', 100);
+        notifService.hapticSignal();
+        addToast('🎯 Target 2 Hit!', `${s.symbol} reached TP2 ${s.take_profit_2} (+${livePips} pips)! Ready to be closed.`, 'success');
+      } else if (hitTp1) {
         const livePips = Math.round(Math.abs(s.take_profit_1 - s.entry_price) / pipUnit * 10) / 10;
         updateSignalStatus(s.id, 'HIT_TP1', livePips);
         soundFx.playSignalChime();
         notifService.signalAlert(s.symbol, 'TARGET 1 REACHED', 100);
         notifService.hapticSignal();
-        addToast('🎯 Take Profit 1 Hit!', `${s.symbol} reached ${s.take_profit_1} (+${livePips} pips)! Ready to be closed.`, 'success');
+        addToast('🎯 Take Profit 1 Hit!', `${s.symbol} reached TP1 ${s.take_profit_1} (+${livePips} pips)! Ready to be closed.`, 'success');
       } else if (hitSl) {
         const lossPips = -Math.round(Math.abs(s.entry_price - s.stop_loss) / pipUnit * 10) / 10;
         updateSignalStatus(s.id, 'STOPPED_OUT', lossPips);
