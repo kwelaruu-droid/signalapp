@@ -40,13 +40,23 @@ function calcPips(signal: TradingSignal): { pips: number; valuePerLot: number } 
 export const SignalCard: React.FC<SignalCardProps> = ({ signal, showOutcomeControls = false }) => {
   const { setSelectedSymbol, setActiveTab, addToast, updateSignalStatus, quotes } = useAppStore();
   const [showCalc, setShowCalc] = useState(false);
+  const [accountBalance, setAccountBalance] = useState(5000);
+  const [riskPercent, setRiskPercent] = useState(1.0);
   const [lotSize, setLotSize] = useState(0.1);
   const isBuy = signal.direction === 'BUY';
   const confidence = signal.confidence ?? 0;
   const { pips, valuePerLot } = calcPips(signal);
   const mtfBadges = getMTFBadges(signal.timeframe);
-  const slRisk = (pips * lotSize * valuePerLot).toFixed(2);
-  const tpReward = (pips * signal.risk_reward_ratio * lotSize * valuePerLot).toFixed(2);
+
+  // Dynamic recommended lot size from balance and risk %
+  const dollarRisk = (accountBalance * (riskPercent / 100));
+  const recommendedLots = pips > 0 && valuePerLot > 0
+    ? Math.max(0.01, Math.round((dollarRisk / (pips * valuePerLot)) * 100) / 100)
+    : 0.10;
+
+  const activeLots = lotSize || recommendedLots;
+  const slRisk = (pips * activeLots * valuePerLot).toFixed(2);
+  const tpReward = (pips * signal.risk_reward_ratio * activeLots * valuePerLot).toFixed(2);
 
   // Live real-time pricing and target detection
   const isJpy = signal.symbol.includes('JPY');
@@ -302,49 +312,77 @@ export const SignalCard: React.FC<SignalCardProps> = ({ signal, showOutcomeContr
         </button>
 
         {showCalc && (
-          <div className="mt-2.5 bg-[#030611] border border-white/[0.08] rounded-xl p-3 space-y-3 animate-in slide-in-from-top-1 duration-150">
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-[10px] text-slate-400 font-sans font-semibold">Select Trade Lot Size</label>
-                <div className="flex gap-1">
-                  {[0.05, 0.10, 0.25, 0.50, 1.00].map((l) => (
-                    <button
-                      key={l}
-                      onClick={() => setLotSize(l)}
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-all ${
-                        lotSize === l
-                          ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40'
-                          : 'bg-white/[0.03] text-slate-500 hover:text-slate-300'
-                      }`}
-                    >
-                      {l}
-                    </button>
-                  ))}
-                </div>
+          <div className="mt-2.5 bg-[#030611] border border-white/[0.08] rounded-xl p-3.5 space-y-3 animate-in slide-in-from-top-1 duration-150">
+            {/* Account Balance & Risk % Presets */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-slate-400 font-sans font-semibold">Account Balance</span>
+                <span className="text-[10px] font-mono font-bold text-cyan-400">${accountBalance.toLocaleString()}</span>
               </div>
-              <input
-                type="number"
-                step="0.01"
-                min="0.01"
-                max="100"
-                value={lotSize}
-                onChange={(e) => setLotSize(Number(e.target.value))}
-                className="w-full bg-[#081020] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs font-mono text-cyan-400 focus:outline-none focus:border-cyan-500"
-              />
+              <div className="grid grid-cols-5 gap-1">
+                {[2000, 5000, 10000, 25000, 50000].map((b) => (
+                  <button
+                    key={b}
+                    onClick={() => setAccountBalance(b)}
+                    className={`py-1 rounded text-[9px] font-mono font-bold transition-all ${
+                      accountBalance === b
+                        ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40'
+                        : 'bg-white/[0.03] text-slate-500 hover:text-slate-300'
+                    }`}
+                  >
+                    ${b >= 1000 ? `${b / 1000}k` : b}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="grid grid-cols-3 gap-2 text-[10px] font-mono">
-              <div className="bg-[#081020] border border-white/5 rounded-lg p-2 text-center">
-                <div className="text-slate-500 mb-0.5">SL Risk Pips</div>
-                <div className="text-slate-200 font-bold">{pips} pips</div>
+
+            {/* Risk % Selector */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-slate-400 font-sans font-semibold">Risk Per Trade</span>
+                <span className="text-[10px] font-mono font-bold text-emerald-400">{riskPercent}% (${dollarRisk.toFixed(2)})</span>
+              </div>
+              <div className="grid grid-cols-3 gap-1">
+                {[0.5, 1.0, 2.0].map((r) => (
+                  <button
+                    key={r}
+                    onClick={() => setRiskPercent(r)}
+                    className={`py-1 rounded text-[9px] font-mono font-bold transition-all ${
+                      riskPercent === r
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                        : 'bg-white/[0.03] text-slate-500 hover:text-slate-300'
+                    }`}
+                  >
+                    {r}% Risk
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Computed Lot Sizing & Metrics */}
+            <div className="grid grid-cols-3 gap-2 text-[10px] font-mono pt-1">
+              <div className="bg-[#081020] border border-cyan-500/30 rounded-lg p-2 text-center">
+                <div className="text-cyan-400/80 mb-0.5">Rec. Lots</div>
+                <div className="text-cyan-300 font-black text-xs">{recommendedLots} Lots</div>
               </div>
               <div className="bg-rose-500/[0.08] border border-rose-500/20 rounded-lg p-2 text-center">
-                <div className="text-rose-400/70 mb-0.5">Capital Risk</div>
+                <div className="text-rose-400/70 mb-0.5">SL Risk ({pips}p)</div>
                 <div className="text-rose-400 font-bold text-xs">${slRisk}</div>
               </div>
               <div className="bg-emerald-500/[0.08] border border-emerald-500/20 rounded-lg p-2 text-center">
-                <div className="text-emerald-400/70 mb-0.5">TP1 Payout</div>
+                <div className="text-emerald-400/70 mb-0.5">TP1 Reward</div>
                 <div className="text-emerald-400 font-bold text-xs">${tpReward}</div>
               </div>
+            </div>
+
+            <div className="pt-1">
+              <button
+                onClick={() => { setSelectedSymbol(signal.symbol); setActiveTab('risk'); }}
+                className="w-full py-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 text-[10px] font-bold tracking-wide transition-all text-center flex items-center justify-center gap-1.5"
+              >
+                <span>Open Full Institutional Risk Studio</span>
+                <span className="text-[11px]">→</span>
+              </button>
             </div>
           </div>
         )}

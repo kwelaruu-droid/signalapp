@@ -42,9 +42,12 @@ class Settings(BaseSettings):
     ECONOMIC_CALENDAR_PROVIDER: str = "external"  # mock, external, tradingeconomics
     TRADING_ECONOMICS_KEY: str = ""
     
-    # Push Notifications (Firebase Cloud Messaging)
+    # Push Notifications & Telegram Alerts
     FIREBASE_PROJECT_ID: str = ""
     GOOGLE_APPLICATION_CREDENTIALS: str = ""
+    TELEGRAM_BOT_TOKEN: str = ""
+    TELEGRAM_CHAT_ID: str = ""
+    DISCORD_WEBHOOK_URL: str = ""
     
     # CORS
     CORS_ORIGINS: List[str] = [

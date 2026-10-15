@@ -8,6 +8,7 @@ from app.schemas.signal import SignalResponse, SignalPerformanceStats
 from app.services.market_data.manager import market_data_manager
 from app.services.signal_engine.engine import auto_signal_engine
 from app.websockets.hub import ws_manager
+from app.services.notification_service.dispatcher import notification_dispatcher
 
 router = APIRouter()
 
@@ -105,6 +106,9 @@ async def trigger_auto_signal_scan(db: Session = Depends(get_db)):
                         "source": sig.source
                     }
                 })
+
+                # Dispatch Telegram & Discord instant alerts
+                await notification_dispatcher.broadcast_new_signal(sig)
 
     return new_signals
 

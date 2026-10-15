@@ -141,16 +141,25 @@ def init_seed_data():
     finally:
         db.close()
 
+from app.services.market_data.watchdog import run_server_watchdog
+
+# Background Tasks
+streaming_task = None
+watchdog_task = None
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     init_seed_data()
-    global streaming_task
+    global streaming_task, watchdog_task
     streaming_task = asyncio.create_task(market_data_broadcaster())
+    watchdog_task = asyncio.create_task(run_server_watchdog())
     yield
     # Shutdown
     if streaming_task:
         streaming_task.cancel()
+    if watchdog_task:
+        watchdog_task.cancel()
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
