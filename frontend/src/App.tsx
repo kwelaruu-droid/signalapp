@@ -116,8 +116,22 @@ export const App: React.FC = () => {
 
     const connectWs = () => {
       try {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        ws = new WebSocket(`${protocol}//${window.location.host}/ws/feed`);
+        const envBase = (import.meta as any).env?.VITE_API_BASE_URL;
+        let wsUrl = '';
+        if (envBase) {
+          try {
+            const parsed = new URL(envBase, window.location.href);
+            const wsProto = parsed.protocol === 'https:' ? 'wss:' : 'ws:';
+            wsUrl = `${wsProto}//${parsed.host}/ws/feed`;
+          } catch {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            wsUrl = `${protocol}//${window.location.host}/ws/feed`;
+          }
+        } else {
+          const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+          wsUrl = `${protocol}//${window.location.host}/ws/feed`;
+        }
+        ws = new WebSocket(wsUrl);
 
         ws.onmessage = (event) => {
           try {

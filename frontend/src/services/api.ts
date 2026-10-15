@@ -1,6 +1,9 @@
 import { Quote, Candle, TradingSignal, NewsArticle, EconomicEvent, User, PriceAlert, SignalPerformanceStats } from '../types';
 
-const API_BASE = '/api/v1';
+const envBase = (import.meta as any).env?.VITE_API_BASE_URL;
+const RAW_BASE = envBase ? String(envBase).trim().replace(/\/+$/, '') : '';
+export const API_BASE = RAW_BASE ? `${RAW_BASE}/api/v1` : '/api/v1';
+
 
 function getAuthHeaders(): HeadersInit {
   const token = localStorage.getItem('fsp_token');
