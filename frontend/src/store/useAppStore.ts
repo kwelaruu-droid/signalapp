@@ -13,7 +13,8 @@ export type AppTab =
   | 'history'
   | 'watchlist'
   | 'admin'
-  | 'profile';
+  | 'profile'
+  | 'privacy';
 
 export interface ToastItem {
   id: string;

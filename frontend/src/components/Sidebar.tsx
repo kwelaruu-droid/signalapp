@@ -12,6 +12,7 @@ import {
   Bell,
   ShieldCheck,
   UserCircle,
+  FileText,
 } from 'lucide-react';
 
 interface NavItem {
@@ -35,6 +36,7 @@ const mgmtItems: NavItem[] = [
   { id: 'watchlist', label: 'Watchlist & Alerts', icon: Bell },
   { id: 'admin',     label: 'Admin Studio',        icon: ShieldCheck },
   { id: 'profile',   label: 'Account & Settings',  icon: UserCircle },
+  { id: 'privacy',   label: 'Legal & Privacy',     icon: FileText },
 ];
 
 function NavSection({ items, activeTab, setActiveTab }: {
@@ -99,16 +101,22 @@ export const Sidebar: React.FC = () => {
         </div>
       </div>
 
-      {/* Risk Warning Card */}
-      <div className="mt-4 bg-gradient-to-br from-[#0d1929] to-[#07101e] border border-white/[0.07] rounded-xl p-3 text-xs">
-        <div className="flex items-center gap-1.5 text-amber-400 font-bold mb-1">
-          <ShieldCheck size={13} />
-          <span className="text-[11px]">Risk Warning</span>
+      {/* Risk Warning & Legal Disclosures Card */}
+      <button
+        onClick={() => setActiveTab('privacy')}
+        className="mt-4 text-left bg-gradient-to-br from-[#0d1929] to-[#07101e] hover:from-[#112238] hover:to-[#091526] border border-white/[0.07] hover:border-cyan-500/30 transition-all rounded-xl p-3 text-xs group"
+      >
+        <div className="flex items-center justify-between text-amber-400 font-bold mb-1">
+          <div className="flex items-center gap-1.5">
+            <ShieldCheck size={13} />
+            <span className="text-[11px]">Risk & Privacy Policy</span>
+          </div>
+          <span className="text-[9px] text-cyan-400 group-hover:underline font-mono">View →</span>
         </div>
-        <p className="text-slate-500 text-[10px] leading-relaxed">
-          CFD &amp; Forex trading carries substantial risk of capital loss. Signals are for quantitative analysis only.
+        <p className="text-slate-500 group-hover:text-slate-400 text-[10px] leading-relaxed transition-colors">
+          CFD &amp; Forex trading carries risk. View our Google Play verified Privacy Policy &amp; Disclosures.
         </p>
-      </div>
+      </button>
     </aside>
   );
 };
