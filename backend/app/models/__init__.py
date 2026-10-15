@@ -5,6 +5,7 @@ from app.models.signal import TradingSignal
 from app.models.news import NewsArticle
 from app.models.calendar import EconomicEvent
 from app.models.alert import PriceAlert, AdminAuditLog
+from app.models.mt5_account import MT5Account
 
 __all__ = [
     "Base",
@@ -15,5 +16,6 @@ __all__ = [
     "NewsArticle",
     "EconomicEvent",
     "PriceAlert",
-    "AdminAuditLog"
+    "AdminAuditLog",
+    "MT5Account"
 ]

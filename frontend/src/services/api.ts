@@ -1,4 +1,4 @@
-import { Quote, Candle, TradingSignal, NewsArticle, EconomicEvent, User, PriceAlert, SignalPerformanceStats } from '../types';
+import { Quote, Candle, TradingSignal, NewsArticle, EconomicEvent, User, PriceAlert, SignalPerformanceStats, BrokerListItem, MT5Account } from '../types';
 
 const envBase = (import.meta as any).env?.VITE_API_BASE_URL;
 const RAW_BASE = envBase ? String(envBase).trim().replace(/\/+$/, '') : '';
@@ -194,6 +194,70 @@ export const api = {
       body: JSON.stringify(alert)
     });
     if (!res.ok) throw new Error('Failed to create alert');
+    return res.json();
+  },
+
+  // MT5 Broker Vault
+  async getBrokers(): Promise<BrokerListItem[]> {
+    const res = await fetch(`${API_BASE}/vault/brokers`);
+    if (!res.ok) return [];
+    return res.json();
+  },
+
+  async getVaultAccounts(clientEmail?: string): Promise<MT5Account[]> {
+    const url = clientEmail
+      ? `${API_BASE}/vault/accounts?client_email=${encodeURIComponent(clientEmail)}`
+      : `${API_BASE}/vault/accounts`;
+    const res = await fetch(url, { headers: getAuthHeaders() });
+    if (!res.ok) return [];
+    return res.json();
+  },
+
+  async addVaultAccount(data: {
+    client_email: string;
+    nickname?: string;
+    broker_name: string;
+    mt5_server: string;
+    mt5_login: string;
+    mt5_password: string;
+    risk_percent: number;
+    auto_breakeven: boolean;
+  }): Promise<MT5Account> {
+    const res = await fetch(`${API_BASE}/vault/accounts`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Failed to add account' }));
+      throw new Error(err.detail || 'Failed to add account');
+    }
+    return res.json();
+  },
+
+  async updateVaultAccount(id: number, data: { nickname?: string; risk_percent?: number; auto_breakeven?: boolean; is_active?: boolean }): Promise<MT5Account> {
+    const res = await fetch(`${API_BASE}/vault/accounts/${id}`, {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw new Error('Update failed');
+    return res.json();
+  },
+
+  async removeVaultAccount(id: number): Promise<void> {
+    await fetch(`${API_BASE}/vault/accounts/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+  },
+
+  async testVaultConnection(id: number): Promise<MT5Account> {
+    const res = await fetch(`${API_BASE}/vault/accounts/${id}/test-connection`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Connection test failed');
     return res.json();
   }
 };

@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   UserCircle,
   FileText,
+  Link2,
 } from 'lucide-react';
 
 interface NavItem {
@@ -29,7 +30,8 @@ const tradingItems: NavItem[] = [
   { id: 'news',      label: 'Forex News',         icon: Newspaper },
   { id: 'calendar',  label: 'Economic Calendar',  icon: CalendarDays },
   { id: 'risk',      label: 'Risk Calculator',    icon: Calculator },
-  { id: 'history',   label: 'Signal History',     icon: History },
+  { id: 'history',      label: 'Signal History',     icon: History },
+  { id: 'broker-vault', label: 'MT5 Broker Vault',   icon: Link2, badge: 'NEW' },
 ];
 
 const mgmtItems: NavItem[] = [

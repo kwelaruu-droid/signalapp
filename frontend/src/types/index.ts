@@ -109,3 +109,26 @@ export interface SignalPerformanceStats {
   performance_by_pair: Record<string, number>;
   performance_by_timeframe: Record<string, number>;
 }
+
+export interface BrokerListItem {
+  name: string;
+  servers: string[];
+}
+
+export interface MT5Account {
+  id: number;
+  client_email: string;
+  nickname?: string;
+  broker_name: string;
+  mt5_server: string;
+  mt5_login: string;
+  risk_percent: number;
+  auto_breakeven: boolean;
+  is_active: boolean;
+  status: 'PENDING' | 'CONNECTED' | 'ERROR' | 'DISCONNECTED';
+  last_equity?: number;
+  last_balance?: number;
+  last_connected_at?: string;
+  error_message?: string;
+  created_at: string;
+}

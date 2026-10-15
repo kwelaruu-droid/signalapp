@@ -26,6 +26,7 @@ import { WatchlistPage } from './pages/WatchlistPage';
 import { AdminPage } from './pages/AdminPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { PrivacyPage } from './pages/PrivacyPage';
+import { BrokerVaultPage } from './pages/BrokerVaultPage';
 
 // Mobile nav icons
 import { LayoutDashboard, Zap, LineChart, Calculator, User } from 'lucide-react';
@@ -243,7 +244,8 @@ export const App: React.FC = () => {
           {activeTab === 'watchlist' && <PageWrapper tabKey="watchlist"><WatchlistPage /></PageWrapper>}
           {activeTab === 'admin'     && <PageWrapper tabKey="admin"><AdminPage /></PageWrapper>}
           {activeTab === 'profile'   && <PageWrapper tabKey="profile"><ProfilePage /></PageWrapper>}
-          {activeTab === 'privacy'   && <PageWrapper tabKey="privacy"><PrivacyPage /></PageWrapper>}
+          {activeTab === 'privacy'      && <PageWrapper tabKey="privacy"><PrivacyPage /></PageWrapper>}
+          {activeTab === 'broker-vault' && <PageWrapper tabKey="broker-vault"><BrokerVaultPage /></PageWrapper>}
         </main>
       </div>
 

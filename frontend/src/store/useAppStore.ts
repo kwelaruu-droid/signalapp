@@ -14,7 +14,8 @@ export type AppTab =
   | 'watchlist'
   | 'admin'
   | 'profile'
-  | 'privacy';
+  | 'privacy'
+  | 'broker-vault';
 
 export interface ToastItem {
   id: string;
