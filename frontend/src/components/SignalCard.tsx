@@ -1,0 +1,309 @@
+import React, { useState } from 'react';
+import { TradingSignal } from '../types';
+import { useAppStore } from '../store/useAppStore';
+import { ArrowUpRight, ArrowDownRight, Copy, Calculator, LineChart, ChevronDown, ChevronUp, CheckCircle2, XCircle } from 'lucide-react';
+import { soundFx } from '../services/audio';
+import { notifService } from '../services/notifications';
+
+interface SignalCardProps {
+  signal: TradingSignal;
+  /** Show admin win/loss outcome controls */
+  showOutcomeControls?: boolean;
+}
+
+// MTF confluence labels — derived from single timeframe for demo
+function getMTFBadges(tf: string) {
+  const all = ['M15', 'H1', 'H4', 'D1'];
+  const tfIndex = all.indexOf(tf);
+  return all.map((t, i) => ({ tf: t, aligned: i >= tfIndex }));
+}
+
+// Pip calculator: pip value per lot at entry vs SL
+function calcPips(signal: TradingSignal): { pips: number; valuePerLot: number } {
+  const isJpy = signal.symbol.includes('JPY');
+  const isGold = signal.symbol.includes('XAU');
+  const isCrypto = signal.symbol.includes('BTC') || signal.symbol.includes('ETH');
+
+  // Pip size: 0.01 for JPY (2nd decimal), 0.10 for Gold ($0.10 move = 1 pip), 1.0 for Crypto, 0.0001 for 4-decimal FX
+  const pipSize = isJpy ? 0.01 : isGold ? 0.10 : isCrypto ? 1.0 : 0.0001;
+  const pips = Math.abs(signal.entry_price - signal.stop_loss) / pipSize;
+
+  // Value per lot per pip (USD):
+  // 1 standard FX lot: $10/pip
+  // 1 standard Gold lot (100 oz): $0.10 move = $10/pip
+  // Crypto: $1 per point
+  const valuePerLot = isCrypto ? 1 : 10;
+  return { pips: Math.round(pips), valuePerLot };
+}
+
+export const SignalCard: React.FC<SignalCardProps> = ({ signal, showOutcomeControls = false }) => {
+  const { setSelectedSymbol, setActiveTab, addToast, updateSignalStatus } = useAppStore();
+  const [showCalc, setShowCalc] = useState(false);
+  const [lotSize, setLotSize] = useState(0.1);
+  const isBuy = signal.direction === 'BUY';
+  const confidence = signal.confidence ?? 0;
+  const { pips, valuePerLot } = calcPips(signal);
+  const mtfBadges = getMTFBadges(signal.timeframe);
+  const slRisk = (pips * lotSize * valuePerLot).toFixed(2);
+  const tpReward = (pips * signal.risk_reward_ratio * lotSize * valuePerLot).toFixed(2);
+
+  const handleCopy = () => {
+    const text = [
+      `📊 FOREX SIGNAL — ${signal.symbol} ${signal.direction}`,
+      `Timeframe : ${signal.timeframe}`,
+      `Entry     : ${signal.entry_price}`,
+      `Stop Loss : ${signal.stop_loss}`,
+      `TP 1      : ${signal.take_profit_1}`,
+      `TP 2      : ${signal.take_profit_2 || 'Open'}`,
+      `R:R       : 1:${signal.risk_reward_ratio}`,
+      `Confidence: ${confidence}%`,
+      `SL Risk   : ${pips} pips (~$${slRisk} @ ${lotSize} lot)`,
+    ].join('\n');
+    navigator.clipboard.writeText(text);
+    soundFx.playAlertBell();
+    notifService.hapticLight();
+    addToast('Setup Copied', `${signal.symbol} parameters copied to clipboard`, 'success');
+  };
+
+  const handleOutcome = (status: TradingSignal['status']) => {
+    updateSignalStatus(signal.id, status);
+    notifService.hapticMedium();
+    addToast(
+      status === 'HIT_TP1' ? '✅ TP1 Hit' : status === 'STOPPED_OUT' ? '❌ Stopped Out' : 'Signal Closed',
+      `${signal.symbol} marked as ${status}`,
+      status === 'STOPPED_OUT' ? 'error' : 'success',
+    );
+  };
+
+  const accentColor = isBuy
+    ? 'border-l-emerald-500 shadow-[0_0_24px_rgba(16,185,129,0.08)]'
+    : 'border-l-rose-500 shadow-[0_0_24px_rgba(244,63,94,0.08)]';
+
+  const directionBadge = isBuy
+    ? 'bg-emerald-500/[0.14] text-emerald-400 border-emerald-500/30 shadow-[0_0_12px_rgba(16,185,129,0.22)]'
+    : 'bg-rose-500/[0.14] text-rose-400 border-rose-500/30 shadow-[0_0_12px_rgba(244,63,94,0.22)]';
+
+  const confColor = confidence >= 80
+    ? 'from-emerald-500 to-emerald-400'
+    : confidence >= 65
+    ? 'from-amber-500 to-amber-400'
+    : 'from-rose-500 to-rose-400';
+
+  // Calculate TP1 pips
+  const isJpy = signal.symbol.includes('JPY');
+  const isGold = signal.symbol.includes('XAU');
+  const isCrypto = signal.symbol.includes('BTC') || signal.symbol.includes('ETH');
+  const pipUnit = isJpy ? 0.01 : isGold ? 0.10 : isCrypto ? 1.0 : 0.0001;
+  const tp1Pips = Math.round(Math.abs(signal.take_profit_1 - signal.entry_price) / pipUnit);
+  const tp2Pips = signal.take_profit_2 ? Math.round(Math.abs(signal.take_profit_2 - signal.entry_price) / pipUnit) : null;
+
+  return (
+    <div className={`glass-card-premium border-l-4 ${accentColor} rounded-2xl p-4 sm:p-5 transition-all duration-200 relative overflow-hidden card-hover w-full min-w-0`}>
+      {/* ── Header ─────────────────────────────── */}
+      <div className="flex items-start justify-between gap-2 mb-3">
+        <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+          {/* Asset Type Micro-Tag */}
+          <span className="w-6 h-6 rounded-lg bg-white/[0.05] border border-white/10 flex items-center justify-center font-bold text-[10px] text-cyan-300 shrink-0">
+            {isGold ? 'AU' : isCrypto ? '₿' : 'FX'}
+          </span>
+          <span className="text-[16px] font-mono font-black text-slate-100 tracking-tight shrink-0">{signal.symbol}</span>
+          <span className={`inline-flex items-center gap-1 text-[11px] font-mono font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider border shrink-0 ${directionBadge}`}>
+            {isBuy ? <ArrowUpRight size={12} strokeWidth={2.5} /> : <ArrowDownRight size={12} strokeWidth={2.5} />}
+            {signal.direction}
+          </span>
+          <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-[#070e1c] text-slate-300 border border-white/[0.08] shrink-0">{signal.timeframe}</span>
+        </div>
+        <div className="flex items-center gap-1 shrink-0 mt-0.5">
+          <span className="hidden sm:block text-[10px] font-bold text-slate-400 bg-[#060913] px-2 py-0.5 rounded-full border border-white/[0.08]">
+            {signal.source === 'ADMIN' ? 'Senior Desk' : 'Quant AI'}
+          </span>
+          <span className={`inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full tracking-wider ${
+            signal.status === 'ACTIVE' 
+              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' 
+              : 'bg-slate-800 text-slate-500'
+          }`}>
+            {signal.status === 'ACTIVE' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
+            {signal.status}
+          </span>
+        </div>
+      </div>
+
+      {/* ── MTF Confluence Badges ──────────────── */}
+      <div className="flex items-center justify-between mb-3 text-[10px] gap-2">
+        <div className="flex items-center gap-1 flex-wrap min-w-0">
+          <span className="text-[9px] text-slate-500 font-bold uppercase tracking-widest shrink-0">MTF:</span>
+          {mtfBadges.map(({ tf, aligned }) => (
+            <span key={tf} className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border shrink-0 ${
+              aligned
+                ? 'bg-emerald-500/[0.12] text-emerald-400 border-emerald-500/25'
+                : 'bg-slate-900/60 text-slate-600 border-white/5'
+            }`}>
+              {tf} {aligned ? '✓' : '·'}
+            </span>
+          ))}
+        </div>
+        <span className="text-[10px] font-mono text-slate-400 shrink-0">
+          ATR <strong className="text-slate-200">1.4x</strong>
+        </span>
+      </div>
+
+      {/* ── Order Ticket Price Grid ─────────────────────────── */}
+      <div className="grid grid-cols-2 2xl:grid-cols-4 gap-2.5 bg-[#040814]/90 border border-white/[0.07] rounded-xl p-3 mb-3 font-mono">
+        <div className="min-w-0">
+          <span className="text-[9px] text-slate-400 uppercase tracking-widest block font-sans font-bold mb-0.5 truncate">Entry Level</span>
+          <span className="text-sm font-black text-cyan-400 tabular-nums truncate block">{signal.entry_price}</span>
+        </div>
+        <div className="min-w-0">
+          <div className="flex items-center justify-between mb-0.5 gap-1">
+            <span className="text-[9px] text-slate-400 uppercase tracking-widest font-sans font-bold truncate">Stop Loss</span>
+            <span className="text-[9px] text-rose-400 font-bold shrink-0">-{pips}p</span>
+          </div>
+          <span className="text-sm font-black text-rose-400 tabular-nums truncate block">{signal.stop_loss}</span>
+        </div>
+        <div className="min-w-0">
+          <div className="flex items-center justify-between mb-0.5 gap-1">
+            <span className="text-[9px] text-slate-400 uppercase tracking-widest font-sans font-bold truncate">Target 1</span>
+            <span className="text-[9px] text-emerald-400 font-bold shrink-0">+{tp1Pips}p</span>
+          </div>
+          <span className="text-sm font-black text-emerald-400 tabular-nums truncate block">{signal.take_profit_1}</span>
+        </div>
+        <div className="min-w-0">
+          <div className="flex items-center justify-between mb-0.5 gap-1">
+            <span className="text-[9px] text-slate-400 uppercase tracking-widest font-sans font-bold truncate">Target 2</span>
+            {tp2Pips && <span className="text-[9px] text-emerald-300 font-bold shrink-0">+{tp2Pips}p</span>}
+          </div>
+          <span className="text-sm font-black text-emerald-300 tabular-nums truncate block">{signal.take_profit_2 || 'Runner'}</span>
+        </div>
+      </div>
+
+      {/* ── Technical Summary ──────────────────── */}
+      {signal.technical_justification && (
+        <p className="text-[11px] text-slate-400 line-clamp-2 leading-relaxed mb-3 font-sans">
+          {signal.technical_justification}
+        </p>
+      )}
+
+      {/* ── Confidence & R:R Bar ─────────────────────── */}
+      <div className="mb-3 space-y-1.5">
+        <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 gap-2">
+          <span className="truncate min-w-0">R:R&nbsp;<strong className="text-slate-200">1 : {signal.risk_reward_ratio}</strong>
+            <span className="ml-1.5 text-slate-500 hidden sm:inline">· {pips}p SL</span>
+          </span>
+          <span className="shrink-0">Conf&nbsp;
+            <strong className={`font-bold ${confidence >= 80 ? 'text-emerald-400' : confidence >= 65 ? 'text-amber-400' : 'text-rose-400'}`}>
+              {confidence}%
+            </strong>
+          </span>
+        </div>
+        <div className="h-1.5 w-full bg-white/[0.05] rounded-full overflow-hidden">
+          <div className={`confidence-bar bg-gradient-to-r ${confColor}`} style={{ '--bar-w': `${confidence}%` } as React.CSSProperties} />
+        </div>
+      </div>
+
+      {/* ── Inline Risk & Position Sizing Calculator ──────────────── */}
+      <div className="mb-3">
+        <button
+          onClick={() => setShowCalc(!showCalc)}
+          className="flex items-center gap-1.5 text-[11px] text-slate-400 hover:text-cyan-400 transition-colors font-mono font-semibold"
+        >
+          <Calculator size={12} className="text-cyan-400" />
+          <span>Institutional Lot Sizer &amp; Risk ($)</span>
+          {showCalc ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+        </button>
+
+        {showCalc && (
+          <div className="mt-2.5 bg-[#030611] border border-white/[0.08] rounded-xl p-3 space-y-3 animate-in slide-in-from-top-1 duration-150">
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-[10px] text-slate-400 font-sans font-semibold">Select Trade Lot Size</label>
+                <div className="flex gap-1">
+                  {[0.05, 0.10, 0.25, 0.50, 1.00].map((l) => (
+                    <button
+                      key={l}
+                      onClick={() => setLotSize(l)}
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-all ${
+                        lotSize === l
+                          ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40'
+                          : 'bg-white/[0.03] text-slate-500 hover:text-slate-300'
+                      }`}
+                    >
+                      {l}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                max="100"
+                value={lotSize}
+                onChange={(e) => setLotSize(Number(e.target.value))}
+                className="w-full bg-[#081020] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs font-mono text-cyan-400 focus:outline-none focus:border-cyan-500"
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-[10px] font-mono">
+              <div className="bg-[#081020] border border-white/5 rounded-lg p-2 text-center">
+                <div className="text-slate-500 mb-0.5">SL Risk Pips</div>
+                <div className="text-slate-200 font-bold">{pips} pips</div>
+              </div>
+              <div className="bg-rose-500/[0.08] border border-rose-500/20 rounded-lg p-2 text-center">
+                <div className="text-rose-400/70 mb-0.5">Capital Risk</div>
+                <div className="text-rose-400 font-bold text-xs">${slRisk}</div>
+              </div>
+              <div className="bg-emerald-500/[0.08] border border-emerald-500/20 rounded-lg p-2 text-center">
+                <div className="text-emerald-400/70 mb-0.5">TP1 Payout</div>
+                <div className="text-emerald-400 font-bold text-xs">${tpReward}</div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Actions ────────────────────────────── */}
+      <div className="flex items-center gap-2 pt-2.5 border-t border-white/[0.06]">
+        <button
+          onClick={() => { setSelectedSymbol(signal.symbol); setActiveTab('charts'); notifService.hapticLight(); }}
+          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-xs font-bold shadow-md shadow-cyan-500/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
+        >
+          <LineChart size={13} />
+          <span>Open Chart</span>
+        </button>
+        <button
+          onClick={() => { setSelectedSymbol(signal.symbol); setShowCalc(true); notifService.hapticLight(); }}
+          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl bg-[#091122] hover:bg-[#101e3d] text-slate-300 hover:text-white border border-white/[0.08] hover:border-white/20 text-xs font-semibold transition-all hover:scale-[1.02] active:scale-[0.98]"
+        >
+          <Calculator size={13} />
+          <span>Lot Size</span>
+        </button>
+        <button
+          onClick={handleCopy}
+          title="Copy signal ticket to clipboard"
+          className="p-2.5 rounded-xl bg-[#091122] hover:bg-[#101e3d] text-slate-400 hover:text-cyan-400 border border-white/[0.08] hover:border-cyan-500/30 transition-all active:scale-95"
+        >
+          <Copy size={14} />
+        </button>
+
+        {/* Outcome controls (admin/analyst only) */}
+        {showOutcomeControls && signal.status === 'ACTIVE' && (
+          <>
+            <button
+              onClick={() => handleOutcome('HIT_TP1')}
+              title="Mark TP1 Hit"
+              className="p-2.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/25 transition-all active:scale-95"
+            >
+              <CheckCircle2 size={14} />
+            </button>
+            <button
+              onClick={() => handleOutcome('STOPPED_OUT')}
+              title="Mark Stopped Out"
+              className="p-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/25 transition-all active:scale-95"
+            >
+              <XCircle size={14} />
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};

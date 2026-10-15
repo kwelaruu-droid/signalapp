@@ -1,0 +1,203 @@
+import asyncio
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+
+from app.core.config import settings
+from app.core.database import Base, engine, SessionLocal
+from app.models.user import User, UserRole
+from app.models.signal import TradingSignal
+from app.core.security import get_password_hash
+from app.websockets.hub import ws_manager
+from app.services.market_data.manager import market_data_manager
+
+# API Routers
+from app.api.endpoints.auth import router as auth_router
+from app.api.endpoints.market import router as market_router
+from app.api.endpoints.signals import router as signals_router
+from app.api.endpoints.admin import router as admin_router
+from app.api.endpoints.misc import news_router, calendar_router, risk_router, alerts_router
+
+# Background Price Streaming Task
+streaming_task = None
+
+async def market_data_broadcaster():
+    """Simulates background streaming worker pushing live quotes to connected Web & Android clients"""
+    while True:
+        try:
+            if ws_manager.active_connections:
+                quotes = await market_data_manager.get_all_quotes()
+                payload = {
+                    "type": "QUOTES_UPDATE",
+                    "data": [q.model_dump(mode="json") for q in quotes]
+                }
+                await ws_manager.broadcast_json(payload)
+        except Exception as e:
+            pass
+        await asyncio.sleep(2.0)
+
+def init_seed_data():
+    """Initializes default admin and seed trading signals if database is newly initialized"""
+    Base.metadata.create_all(bind=engine)
+    db: Session = SessionLocal()
+    try:
+        # 1. Seed Super Admin
+        admin = db.query(User).filter(User.email == "admin@forexsignalpro.com").first()
+        if not admin:
+            admin = User(
+                email="admin@forexsignalpro.com",
+                hashed_password=get_password_hash("AdminPass123!"),
+                full_name="Chief Market Analyst",
+                role=UserRole.SUPER_ADMIN.value,
+                timezone="Africa/Nairobi",
+                account_currency="USD",
+                is_active=True,
+                is_verified=True
+            )
+            db.add(admin)
+
+        # 2. Seed Initial High-Quality Verified Signals
+        count = db.query(TradingSignal).count()
+        if count == 0:
+            signals = [
+                TradingSignal(
+                    symbol="EUR/USD",
+                    direction="BUY",
+                    timeframe="H1",
+                    entry_price=1.11550,
+                    entry_zone_high=1.11590,
+                    entry_zone_low=1.11510,
+                    stop_loss=1.11250,
+                    take_profit_1=1.12000,
+                    take_profit_2=1.12450,
+                    take_profit_3=1.12850,
+                    risk_reward_ratio=1.50,
+                    confidence=89,
+                    technical_justification="OANDA Live: Breakout retest above 1.1150 liquidity pool with MACD expansion on H1.",
+                    status="ACTIVE",
+                    source="ADMIN",
+                    pnl_pips=18.4
+                ),
+                TradingSignal(
+                    symbol="GBP/USD",
+                    direction="SELL",
+                    timeframe="H4",
+                    entry_price=1.31900,
+                    entry_zone_high=1.31980,
+                    entry_zone_low=1.31820,
+                    stop_loss=1.32350,
+                    take_profit_1=1.31200,
+                    take_profit_2=1.30600,
+                    take_profit_3=1.29800,
+                    risk_reward_ratio=1.56,
+                    confidence=86,
+                    technical_justification="OANDA Live: Bearish order block rejection at 1.3200; RSI divergence on H4.",
+                    status="ACTIVE",
+                    source="AUTO",
+                    pnl_pips=24.0
+                ),
+                TradingSignal(
+                    symbol="XAU/USD",
+                    direction="BUY",
+                    timeframe="H1",
+                    entry_price=4101.00,
+                    entry_zone_high=4103.50,
+                    entry_zone_low=4098.50,
+                    stop_loss=4086.00,
+                    take_profit_1=4123.50,
+                    take_profit_2=4138.50,
+                    take_profit_3=4155.00,
+                    risk_reward_ratio=1.50,
+                    confidence=94,
+                    technical_justification="OANDA Live: Bullish accumulation above 4100 institutional psych level; H1 EMA-20 dynamic support.",
+                    status="ACTIVE",
+                    source="ADMIN",
+                    pnl_pips=62.0
+                ),
+                TradingSignal(
+                    symbol="USD/JPY",
+                    direction="BUY",
+                    timeframe="H1",
+                    entry_price=158.350,
+                    entry_zone_high=158.450,
+                    entry_zone_low=158.250,
+                    stop_loss=157.850,
+                    take_profit_1=159.100,
+                    take_profit_2=159.850,
+                    take_profit_3=160.500,
+                    risk_reward_ratio=1.50,
+                    confidence=88,
+                    technical_justification="OANDA Live: US Treasury yield gap defense; ascending trendline bounce on H1.",
+                    status="ACTIVE",
+                    source="AUTO",
+                    pnl_pips=12.5
+                )
+            ]
+            db.add_all(signals)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+    finally:
+        db.close()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    init_seed_data()
+    global streaming_task
+    streaming_task = asyncio.create_task(market_data_broadcaster())
+    yield
+    # Shutdown
+    if streaming_task:
+        streaming_task.cancel()
+
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    version=settings.VERSION,
+    description="Professional Institutional Forex Signals & Financial News API",
+    lifespan=lifespan
+)
+
+# CORS Configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Mount API Routers
+app.include_router(auth_router, prefix=f"{settings.API_V1_STR}/auth", tags=["Authentication"])
+app.include_router(market_router, prefix=f"{settings.API_V1_STR}/market", tags=["Market Data"])
+app.include_router(signals_router, prefix=f"{settings.API_V1_STR}/signals", tags=["Signals"])
+app.include_router(admin_router, prefix=f"{settings.API_V1_STR}/admin", tags=["Admin Studio"])
+app.include_router(news_router, prefix=f"{settings.API_V1_STR}/news", tags=["News"])
+app.include_router(calendar_router, prefix=f"{settings.API_V1_STR}/calendar", tags=["Economic Calendar"])
+app.include_router(risk_router, prefix=f"{settings.API_V1_STR}/risk", tags=["Risk Management"])
+app.include_router(alerts_router, prefix=f"{settings.API_V1_STR}/alerts", tags=["Price Alerts"])
+
+@app.get("/health")
+def api_health():
+    return {
+        "status": "healthy",
+        "service": settings.PROJECT_NAME,
+        "version": settings.VERSION,
+        "timezone": settings.DEFAULT_TIMEZONE
+    }
+
+@app.websocket("/ws/feed")
+async def websocket_feed(websocket: WebSocket):
+    """Real-time streaming WebSocket endpoint for live quotes and immediate signal broadcast"""
+    await ws_manager.connect(websocket)
+    try:
+        while True:
+            # Keep-alive ping/pong
+            data = await websocket.receive_text()
+            if data == "ping":
+                await websocket.send_text("pong")
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket)
+    except Exception:
+        ws_manager.disconnect(websocket)
