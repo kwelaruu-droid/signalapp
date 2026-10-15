@@ -51,6 +51,8 @@ export const App: React.FC = () => {
     notificationsGranted,
     setNotificationsGranted,
     quotes,
+    signals,
+    updateSignalStatus,
     darkMode,
   } = useAppStore();
 
@@ -107,6 +109,37 @@ export const App: React.FC = () => {
           alertsRef.current = alertsRef.current.filter((a) => a.id !== alert.id);
         }
       });
+    });
+
+    // ── Check Active Signals for Target Hits (Auto-detect TP / SL reached) ──
+    signals.forEach((s) => {
+      if (s.status !== 'ACTIVE') return;
+      const q = quotes[s.symbol];
+      if (!q) return;
+
+      const isBuy = s.direction === 'BUY';
+      const isJpy = s.symbol.includes('JPY');
+      const isGold = s.symbol.includes('XAU');
+      const isCrypto = s.symbol.includes('BTC') || s.symbol.includes('ETH');
+      const pipUnit = isJpy ? 0.01 : isGold ? 0.10 : isCrypto ? 1.0 : 0.0001;
+
+      const hitTp1 = (isBuy && q.mid >= s.take_profit_1) || (!isBuy && q.mid <= s.take_profit_1);
+      const hitSl = (isBuy && q.mid <= s.stop_loss) || (!isBuy && q.mid >= s.stop_loss);
+
+      if (hitTp1) {
+        const livePips = Math.round(Math.abs(s.take_profit_1 - s.entry_price) / pipUnit * 10) / 10;
+        updateSignalStatus(s.id, 'HIT_TP1', livePips);
+        soundFx.playSignalChime();
+        notifService.signalAlert(s.symbol, 'TARGET 1 REACHED', 100);
+        notifService.hapticSignal();
+        addToast('🎯 Take Profit 1 Hit!', `${s.symbol} reached ${s.take_profit_1} (+${livePips} pips)! Ready to be closed.`, 'success');
+      } else if (hitSl) {
+        const lossPips = -Math.round(Math.abs(s.entry_price - s.stop_loss) / pipUnit * 10) / 10;
+        updateSignalStatus(s.id, 'STOPPED_OUT', lossPips);
+        soundFx.playAlertBell();
+        notifService.hapticSignal();
+        addToast('🛑 Stop Loss Hit', `${s.symbol} touched SL at ${s.stop_loss} (${lossPips} pips). Ready to be closed.`, 'error');
+      }
     });
   }, [quotes]); // eslint-disable-line react-hooks/exhaustive-deps
 

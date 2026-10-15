@@ -16,8 +16,11 @@ import {
   ArrowDownRight,
   Filter,
   Search,
-  Sparkles
+  Sparkles,
+  CheckCheck
 } from 'lucide-react';
+import { soundFx } from '../services/audio';
+import { notifService } from '../services/notifications';
 
 function getPipSize(symbol: string): number {
   if (symbol.includes('JPY')) return 0.01;
@@ -28,7 +31,7 @@ function getPipSize(symbol: string): number {
 }
 
 export const HistoryPage: React.FC = () => {
-  const { signals, quotes, setSelectedSymbol, setActiveTab } = useAppStore();
+  const { signals, quotes, setSelectedSymbol, setActiveTab, updateSignalStatus, addToast } = useAppStore();
   const [stats, setStats] = useState<SignalPerformanceStats | null>(null);
   const [filterType, setFilterType] = useState<'ALL' | 'ACTIVE' | 'HIT_TP' | 'STOPPED_OUT'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
@@ -38,6 +41,22 @@ export const HistoryPage: React.FC = () => {
       .then(res => setStats(res))
       .catch(() => {});
   }, []);
+
+  const handleCloseSignal = async (id: number, status: TradingSignal['status'], pnl: number) => {
+    updateSignalStatus(id, status, pnl);
+    soundFx.playSignalChime();
+    notifService.hapticSignal();
+    addToast(
+      status === 'HIT_TP1' ? '🎯 Take Profit Locked' : 'Signal Closed',
+      `Signal blotter updated with ${pnl >= 0 ? '+' : ''}${pnl} pips locked into audit history`,
+      pnl >= 0 ? 'success' : 'alert'
+    );
+    try {
+      await api.closeSignal(id, status, pnl);
+    } catch {
+      // Local state already updated
+    }
+  };
 
   // Compute live metrics for each signal
   const enrichedSignals = signals.map(s => {
@@ -385,18 +404,34 @@ export const HistoryPage: React.FC = () => {
                       </div>
                     </td>
 
-                    {/* Inspect on Chart Button */}
+                    {/* Inspect on Chart & Close Actions */}
                     <td className="py-3.5 px-4 text-center">
-                      <button
-                        onClick={() => {
-                          setSelectedSymbol(s.symbol);
-                          setActiveTab('charts');
-                        }}
-                        className="p-1.5 rounded-lg bg-white/[0.04] hover:bg-cyan-500/20 text-slate-400 hover:text-cyan-400 border border-white/[0.06] hover:border-cyan-500/30 transition-all"
-                        title={`Open ${s.symbol} interactive candlestick chart`}
-                      >
-                        <LineChart size={14} />
-                      </button>
+                      <div className="flex items-center justify-center gap-1.5">
+                        {s.status === 'ACTIVE' && (
+                          <button
+                            onClick={() => handleCloseSignal(s.id, s.rawProgressPct >= 100 ? 'HIT_TP1' : s.livePips < 0 ? 'STOPPED_OUT' : 'CLOSED', s.livePips)}
+                            className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-all active:scale-95 flex items-center gap-1 ${
+                              s.rawProgressPct >= 100
+                                ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border-emerald-500/40 glow-emerald-sm animate-pulse'
+                                : 'bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white border-white/10'
+                            }`}
+                            title="Close active signal and lock in PnL"
+                          >
+                            <CheckCheck size={11} className={s.rawProgressPct >= 100 ? 'text-emerald-400' : 'text-slate-400'} />
+                            <span>{s.rawProgressPct >= 100 ? 'Lock TP' : 'Close'}</span>
+                          </button>
+                        )}
+                        <button
+                          onClick={() => {
+                            setSelectedSymbol(s.symbol);
+                            setActiveTab('charts');
+                          }}
+                          className="p-1.5 rounded-lg bg-white/[0.04] hover:bg-cyan-500/20 text-slate-400 hover:text-cyan-400 border border-white/[0.06] hover:border-cyan-500/30 transition-all"
+                          title={`Open ${s.symbol} interactive candlestick chart`}
+                        >
+                          <LineChart size={14} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

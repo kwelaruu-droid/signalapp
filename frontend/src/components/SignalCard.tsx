@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import { TradingSignal } from '../types';
 import { useAppStore } from '../store/useAppStore';
-import { ArrowUpRight, ArrowDownRight, Copy, Calculator, LineChart, ChevronDown, ChevronUp, CheckCircle2, XCircle } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight, Copy, Calculator, LineChart, ChevronDown, ChevronUp, CheckCircle2, XCircle, CheckCheck, Sparkles } from 'lucide-react';
 import { soundFx } from '../services/audio';
 import { notifService } from '../services/notifications';
+import { api } from '../services/api';
 
 interface SignalCardProps {
   signal: TradingSignal;
@@ -37,7 +38,7 @@ function calcPips(signal: TradingSignal): { pips: number; valuePerLot: number } 
 }
 
 export const SignalCard: React.FC<SignalCardProps> = ({ signal, showOutcomeControls = false }) => {
-  const { setSelectedSymbol, setActiveTab, addToast, updateSignalStatus } = useAppStore();
+  const { setSelectedSymbol, setActiveTab, addToast, updateSignalStatus, quotes } = useAppStore();
   const [showCalc, setShowCalc] = useState(false);
   const [lotSize, setLotSize] = useState(0.1);
   const isBuy = signal.direction === 'BUY';
@@ -46,6 +47,25 @@ export const SignalCard: React.FC<SignalCardProps> = ({ signal, showOutcomeContr
   const mtfBadges = getMTFBadges(signal.timeframe);
   const slRisk = (pips * lotSize * valuePerLot).toFixed(2);
   const tpReward = (pips * signal.risk_reward_ratio * lotSize * valuePerLot).toFixed(2);
+
+  // Live real-time pricing and target detection
+  const isJpy = signal.symbol.includes('JPY');
+  const isGold = signal.symbol.includes('XAU');
+  const isCrypto = signal.symbol.includes('BTC') || signal.symbol.includes('ETH');
+  const pipUnit = isJpy ? 0.01 : isGold ? 0.10 : isCrypto ? 1.0 : 0.0001;
+
+  const currentQuote = quotes[signal.symbol];
+  const livePrice = currentQuote ? currentQuote.mid : signal.entry_price;
+  const liveFloatingPips = isBuy 
+    ? Math.round(((livePrice - signal.entry_price) / pipUnit) * 10) / 10
+    : Math.round(((signal.entry_price - livePrice) / pipUnit) * 10) / 10;
+
+  const hitTp1 = (isBuy && livePrice >= signal.take_profit_1) || (!isBuy && livePrice <= signal.take_profit_1) || signal.status === 'HIT_TP1';
+  const hitTp2 = (signal.take_profit_2 && ((isBuy && livePrice >= signal.take_profit_2) || (!isBuy && livePrice <= signal.take_profit_2))) || signal.status === 'HIT_TP2';
+  const hitTp3 = (signal.take_profit_3 && ((isBuy && livePrice >= signal.take_profit_3) || (!isBuy && livePrice <= signal.take_profit_3))) || signal.status === 'HIT_TP3';
+  const hitSl = (isBuy && livePrice <= signal.stop_loss) || (!isBuy && livePrice >= signal.stop_loss) || signal.status === 'STOPPED_OUT';
+
+  const isReadyToClose = signal.status === 'ACTIVE' && (hitTp1 || hitTp2 || hitTp3 || hitSl);
 
   const handleCopy = () => {
     const text = [
@@ -65,14 +85,25 @@ export const SignalCard: React.FC<SignalCardProps> = ({ signal, showOutcomeContr
     addToast('Setup Copied', `${signal.symbol} parameters copied to clipboard`, 'success');
   };
 
-  const handleOutcome = (status: TradingSignal['status']) => {
-    updateSignalStatus(signal.id, status);
-    notifService.hapticMedium();
+  const handleCloseAndLock = async (targetStatus: TradingSignal['status']) => {
+    const finalPnl = liveFloatingPips;
+    updateSignalStatus(signal.id, targetStatus, finalPnl);
+    soundFx.playSignalChime();
+    notifService.hapticSignal();
     addToast(
-      status === 'HIT_TP1' ? '✅ TP1 Hit' : status === 'STOPPED_OUT' ? '❌ Stopped Out' : 'Signal Closed',
-      `${signal.symbol} marked as ${status}`,
-      status === 'STOPPED_OUT' ? 'error' : 'success',
+      targetStatus === 'STOPPED_OUT' ? 'Position Stopped Out' : '🎯 Target Hit & Profit Locked',
+      `${signal.symbol} closed with ${finalPnl >= 0 ? '+' : ''}${finalPnl} pips!`,
+      finalPnl >= 0 ? 'success' : 'alert'
     );
+    try {
+      await api.closeSignal(signal.id, targetStatus, finalPnl);
+    } catch {
+      // Local state preserved
+    }
+  };
+
+  const handleOutcome = (status: TradingSignal['status']) => {
+    handleCloseAndLock(status);
   };
 
   const accentColor = isBuy
@@ -90,10 +121,6 @@ export const SignalCard: React.FC<SignalCardProps> = ({ signal, showOutcomeContr
     : 'from-rose-500 to-rose-400';
 
   // Calculate TP1 pips
-  const isJpy = signal.symbol.includes('JPY');
-  const isGold = signal.symbol.includes('XAU');
-  const isCrypto = signal.symbol.includes('BTC') || signal.symbol.includes('ETH');
-  const pipUnit = isJpy ? 0.01 : isGold ? 0.10 : isCrypto ? 1.0 : 0.0001;
   const tp1Pips = Math.round(Math.abs(signal.take_profit_1 - signal.entry_price) / pipUnit);
   const tp2Pips = signal.take_profit_2 ? Math.round(Math.abs(signal.take_profit_2 - signal.entry_price) / pipUnit) : null;
 
@@ -127,6 +154,38 @@ export const SignalCard: React.FC<SignalCardProps> = ({ signal, showOutcomeContr
           </span>
         </div>
       </div>
+
+      {/* ── Ready to Close / Target Reached Banner ──────────────── */}
+      {isReadyToClose && (
+        <div className={`mb-3.5 p-3 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 transition-all shadow-lg ${
+          hitSl 
+            ? 'bg-rose-500/15 border-rose-500/35 text-rose-200 shadow-rose-500/10' 
+            : 'bg-emerald-500/15 border-emerald-500/35 text-emerald-200 shadow-emerald-500/10 glow-emerald-sm'
+        }`}>
+          <div className="flex items-center gap-2 min-w-0">
+            {hitSl ? <XCircle size={17} className="text-rose-400 shrink-0" /> : <CheckCircle2 size={17} className="text-emerald-400 shrink-0" />}
+            <div className="text-xs min-w-0">
+              <span className="font-black tracking-wide block truncate">
+                {hitSl ? 'STOP LOSS HIT' : hitTp3 ? '🎯 TARGET 3 HIT (RUNNER)' : hitTp2 ? '🎯 TARGET 2 REACHED' : '🎯 TARGET 1 HIT!'}
+              </span>
+              <span className="text-[10px] text-slate-300 font-mono">
+                {liveFloatingPips >= 0 ? `+${liveFloatingPips}` : liveFloatingPips} pips floating · Ready to be closed
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={() => handleCloseAndLock(hitSl ? 'STOPPED_OUT' : hitTp2 ? 'HIT_TP2' : 'HIT_TP1')}
+            className={`w-full sm:w-auto px-3.5 py-1.5 rounded-lg text-xs font-black shadow-md transition-all active:scale-95 shrink-0 flex items-center justify-center gap-1.5 ${
+              hitSl
+                ? 'bg-rose-600 hover:bg-rose-500 text-white'
+                : 'bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 shadow-emerald-500/25'
+            }`}
+          >
+            <CheckCheck size={14} />
+            <span>Lock &amp; Close Trade</span>
+          </button>
+        </div>
+      )}
 
       {/* ── MTF Confluence Badges ──────────────── */}
       <div className="flex items-center justify-between mb-3 text-[10px] gap-2">
@@ -283,6 +342,21 @@ export const SignalCard: React.FC<SignalCardProps> = ({ signal, showOutcomeContr
         >
           <Copy size={14} />
         </button>
+
+        {signal.status === 'ACTIVE' && (
+          <button
+            onClick={() => handleCloseAndLock(hitTp1 ? 'HIT_TP1' : hitSl ? 'STOPPED_OUT' : 'CLOSED')}
+            title="Lock in PnL and close signal"
+            className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all active:scale-95 flex items-center gap-1.5 ${
+              isReadyToClose
+                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 glow-emerald-sm animate-pulse'
+                : 'bg-white/[0.04] text-slate-300 hover:text-white hover:bg-white/[0.08] border-white/10'
+            }`}
+          >
+            <CheckCheck size={13} className={isReadyToClose ? 'text-emerald-400' : 'text-slate-400'} />
+            <span>Close</span>
+          </button>
+        )}
 
         {/* Outcome controls (admin/analyst only) */}
         {showOutcomeControls && signal.status === 'ACTIVE' && (

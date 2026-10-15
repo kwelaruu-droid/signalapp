@@ -44,7 +44,7 @@ interface AppState {
   signals: TradingSignal[];
   setSignals: (signals: TradingSignal[]) => void;
   addSignal: (signal: TradingSignal) => void;
-  updateSignalStatus: (id: number, status: TradingSignal['status']) => void;
+  updateSignalStatus: (id: number, status: TradingSignal['status'], pnl_pips?: number) => void;
 
   // ── Content ────────────────────────────────────
   news: NewsArticle[];
@@ -145,9 +145,18 @@ export const useAppStore = create<AppState>()(
         set((state) => ({
           signals: [signal, ...state.signals.filter((s) => s.id !== signal.id)],
         })),
-      updateSignalStatus: (id, status) =>
+      updateSignalStatus: (id, status, pnl_pips) =>
         set((state) => ({
-          signals: state.signals.map((s) => (s.id === id ? { ...s, status } : s)),
+          signals: state.signals.map((s) =>
+            s.id === id
+              ? {
+                  ...s,
+                  status,
+                  pnl_pips: pnl_pips !== undefined ? pnl_pips : s.pnl_pips,
+                  closed_at: (status !== 'ACTIVE' && !s.closed_at) ? new Date().toISOString() : s.closed_at
+                }
+              : s
+          ),
         })),
 
       // ── Content ────────────────────────────────

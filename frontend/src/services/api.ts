@@ -109,6 +109,17 @@ export const api = {
     return res.json();
   },
 
+  async closeSignal(id: number, status: string = 'CLOSED', pnl?: number): Promise<TradingSignal> {
+    const params = new URLSearchParams({ status });
+    if (pnl !== undefined) params.append('pnl', String(pnl));
+    const res = await fetch(`${API_BASE}/signals/${id}/close?${params.toString()}`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) throw new Error('Failed to close signal');
+    return res.json();
+  },
+
   // Admin Studio
   async publishAdminSignal(signalData: Partial<TradingSignal>): Promise<TradingSignal> {
     const res = await fetch(`${API_BASE}/admin/signals`, {

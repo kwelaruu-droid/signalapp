@@ -154,3 +154,54 @@ def get_signal_performance_stats(db: Session = Depends(get_db)):
         performance_by_pair=by_pair,
         performance_by_timeframe=by_tf
     )
+
+@router.post("/{signal_id}/close", response_model=SignalResponse)
+async def close_signal_endpoint(
+    signal_id: int,
+    status: Optional[str] = Query("CLOSED", description="Target status: CLOSED, HIT_TP1, HIT_TP2, or STOPPED_OUT"),
+    pnl: Optional[float] = Query(None, description="Optional locked PnL pips"),
+    db: Session = Depends(get_db)
+):
+    """Closes an active trading signal, freezes its realized PnL, and broadcasts update to clients"""
+    sig = db.query(TradingSignal).filter(TradingSignal.id == signal_id).first()
+    if not sig:
+        raise HTTPException(status_code=404, detail="Signal not found")
+
+    quote = await market_data_manager.get_quote(sig.symbol)
+    curr_price = quote.mid if quote else sig.entry_price
+
+    pip_size = 0.0001
+    if "JPY" in sig.symbol:
+        pip_size = 0.01
+    elif "XAU" in sig.symbol:
+        pip_size = 0.10
+    elif "BTC" in sig.symbol or "ETH" in sig.symbol:
+        pip_size = 1.0
+
+    if pnl is not None:
+        realized_pips = pnl
+    else:
+        if sig.direction == "BUY":
+            realized_pips = round((curr_price - sig.entry_price) / pip_size, 1)
+        else:
+            realized_pips = round((sig.entry_price - curr_price) / pip_size, 1)
+
+    sig.status = status or "CLOSED"
+    sig.pnl_pips = realized_pips
+    sig.closed_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(sig)
+
+    await ws_manager.broadcast_json({
+        "type": "SIGNAL_OUTCOME",
+        "data": {
+            "id": sig.id,
+            "symbol": sig.symbol,
+            "status": sig.status,
+            "pnl_pips": sig.pnl_pips,
+            "closed_at": sig.closed_at.isoformat()
+        }
+    })
+
+    return sig
+
