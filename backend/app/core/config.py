@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_CHAT_ID: str = ""
     DISCORD_WEBHOOK_URL: str = ""
+
+    # MT5 Trade Copier API Key
+    COPIER_API_KEY: str = "fsp-secret-copier-key-998811"
     
     # CORS
     CORS_ORIGINS: List[str] = [

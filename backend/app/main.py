@@ -17,6 +17,7 @@ from app.api.endpoints.auth import router as auth_router
 from app.api.endpoints.market import router as market_router
 from app.api.endpoints.signals import router as signals_router
 from app.api.endpoints.admin import router as admin_router
+from app.api.endpoints.copier import router as copier_router
 from app.api.endpoints.misc import news_router, calendar_router, risk_router, alerts_router
 
 # Background Price Streaming Task
@@ -187,6 +188,7 @@ app.include_router(news_router, prefix=f"{settings.API_V1_STR}/news", tags=["New
 app.include_router(calendar_router, prefix=f"{settings.API_V1_STR}/calendar", tags=["Economic Calendar"])
 app.include_router(risk_router, prefix=f"{settings.API_V1_STR}/risk", tags=["Risk Management"])
 app.include_router(alerts_router, prefix=f"{settings.API_V1_STR}/alerts", tags=["Price Alerts"])
+app.include_router(copier_router, prefix=f"{settings.API_V1_STR}/copier", tags=["MT5 Trade Copier"])
 
 @app.get("/health")
 def api_health():
