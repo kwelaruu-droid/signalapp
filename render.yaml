@@ -1,39 +1,7 @@
 services:
   # ─────────────────────────────────────────
-  # FastAPI Backend
-  # ─────────────────────────────────────────
-  - type: web
-    name: forex-signal-pro-backend
-    runtime: docker
-    dockerfilePath: ./backend/Dockerfile
-    dockerContext: ./backend
-    envVars:
-      - key: APP_ENV
-        value: production
-      - key: DATABASE_URL
-        value: sqlite:///./forex_signal_pro.db
-      - key: SECRET_KEY
-        generateValue: true
-      - key: MARKET_DATA_PROVIDER
-        value: oanda
-      - key: OANDA_API_TOKEN
-        sync: false        # set manually in Render dashboard
-      - key: OANDA_ACCOUNT_ID
-        sync: false
-      - key: TWELVE_DATA_API_KEY
-        sync: false
-      - key: DEFAULT_TIMEZONE
-        value: Africa/Nairobi
-      - key: NEWS_PROVIDER
-        value: mock
-      - key: ECONOMIC_CALENDAR_PROVIDER
-        value: external
-      - key: CORS_ORIGINS
-        value: '["https://forex-signal-pro-frontend.onrender.com","https://forex-signal-pro-backend.onrender.com","capacitor://localhost"]'
-    healthCheckPath: /health
-
-  # ─────────────────────────────────────────
-  # React Frontend (Static Site)
+  # React Frontend (Static Site — FREE)
+  # Backend is hosted on Railway.app
   # ─────────────────────────────────────────
   - type: web
     name: forex-signal-pro-frontend
@@ -47,4 +15,4 @@ services:
         destination: /index.html
     envVars:
       - key: VITE_API_BASE_URL
-        value: https://forex-signal-pro-backend.onrender.com
+        sync: false   # Set this manually after Railway backend is deployed
