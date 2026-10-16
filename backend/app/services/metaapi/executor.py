@@ -22,15 +22,24 @@ from app.services.metaapi.client import MetaApiClient, MetaApiError
 logger = logging.getLogger("metaapi.executor")
 
 # ─── Singleton client ────────────────────────────────────────────────────────
-_client: Optional[MetaApiClient] = None
+from app.services.brokers import BrokerManager
 
-def get_client() -> Optional[MetaApiClient]:
-    global _client
+# BrokerManager will provide a client for the appropriate broker
+_broker_manager = BrokerManager()
+
+def get_client(broker_name: str, require_demo: bool = False) -> Optional[MetaApiClient]:
+    """Return a MetaApiClient for the given broker.
+
+    In demo mode (settings.METAAPI_TOKEN is missing) the manager will still
+    create a client via the token; the `require_demo` flag forces sandbox servers.
+    """
     if not settings.METAAPI_TOKEN:
         return None
-    if _client is None:
-        _client = MetaApiClient(settings.METAAPI_TOKEN)
-    return _client
+    try:
+        return _broker_manager.get_client(broker_name, require_demo=require_demo)
+    except Exception as e:
+        logger.error(f"[BrokerManager] Failed to get client for {broker_name}: {e}")
+        return None
 
 
 # ─── Execute a single signal on a single vault account ───────────────────────
@@ -44,7 +53,7 @@ async def execute_signal_on_account(
     Provisions the MetaApi account (if needed), calculates lot size,
     places a limit order, and records the execution.
     """
-    client = get_client()
+    client = get_client(account.broker_name)
 
     # Create pending execution log first
     exec_log = TradeExecution(
@@ -257,7 +266,7 @@ async def equity_sync_worker() -> None:
     """
     while True:
         await asyncio.sleep(300)  # sync every 5 minutes
-        client = get_client()
+        # Obtain client per account inside the loop
         db: Session = SessionLocal()
         try:
             accounts = db.query(MT5Account).filter(
@@ -267,10 +276,11 @@ async def equity_sync_worker() -> None:
 
             for acc in accounts:
                 try:
-                    if client and acc.metaapi_account_id:
-                        info = await client.get_account_info(acc.metaapi_account_id)
-                        acc.last_equity = info.get("equity", acc.last_equity)
-                        acc.last_balance = info.get("balance", acc.last_balance)
+                    client = get_client(acc.broker_name)
+                        if client and acc.metaapi_account_id:
+                            info = await client.get_account_info(acc.metaapi_account_id)
+                            acc.last_equity = info.get("equity", acc.last_equity)
+                            acc.last_balance = info.get("balance", acc.last_balance)
                         acc.last_connected_at = datetime.now(timezone.utc)
                     else:
                         # Demo: small drift
