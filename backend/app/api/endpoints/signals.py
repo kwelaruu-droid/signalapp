@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime, timezone
@@ -9,6 +9,7 @@ from app.services.market_data.manager import market_data_manager
 from app.services.signal_engine.engine import auto_signal_engine
 from app.websockets.hub import ws_manager
 from app.services.notification_service.dispatcher import notification_dispatcher
+from app.services.metaapi.executor import auto_execute_signal
 
 router = APIRouter()
 
@@ -47,7 +48,10 @@ import time
 _last_scan_timestamp = 0.0
 
 @router.post("/auto-scan", response_model=List[SignalResponse])
-async def trigger_auto_signal_scan(db: Session = Depends(get_db)):
+async def trigger_auto_signal_scan(
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
     """
     Executes algorithmic confluence analysis across all tracked instruments.
     Generates signals if entry rules and ATR validation filters are satisfied.
@@ -124,6 +128,9 @@ async def trigger_auto_signal_scan(db: Session = Depends(get_db)):
 
                 # Dispatch Telegram & Discord instant alerts
                 await notification_dispatcher.broadcast_new_signal(sig)
+
+                # 🚀 Auto-execute on all connected vault accounts via MetaApi
+                background_tasks.add_task(auto_execute_signal, sig.id)
 
     return new_signals
 

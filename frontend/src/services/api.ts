@@ -1,4 +1,4 @@
-import { Quote, Candle, TradingSignal, NewsArticle, EconomicEvent, User, PriceAlert, SignalPerformanceStats, BrokerListItem, MT5Account } from '../types';
+import { Quote, Candle, TradingSignal, NewsArticle, EconomicEvent, User, PriceAlert, SignalPerformanceStats, BrokerListItem, MT5Account, TradeExecution, ExecutionStats } from '../types';
 
 const envBase = (import.meta as any).env?.VITE_API_BASE_URL;
 const RAW_BASE = envBase ? String(envBase).trim().replace(/\/+$/, '') : '';
@@ -259,5 +259,40 @@ export const api = {
     });
     if (!res.ok) throw new Error('Connection test failed');
     return res.json();
-  }
+  },
+
+  // ─── Trade Executions ───────────────────────────────────────────
+
+  async getExecutions(params?: { signal_id?: number; account_id?: number; status?: string; limit?: number }): Promise<TradeExecution[]> {
+    const query = new URLSearchParams();
+    if (params?.signal_id) query.set('signal_id', String(params.signal_id));
+    if (params?.account_id) query.set('account_id', String(params.account_id));
+    if (params?.status) query.set('status', params.status);
+    if (params?.limit) query.set('limit', String(params.limit));
+    const res = await fetch(`${API_BASE}/executions/?${query.toString()}`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) return [];
+    return res.json();
+  },
+
+  async getExecutionStats(): Promise<ExecutionStats> {
+    const res = await fetch(`${API_BASE}/executions/stats`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) return { total_executions: 0, submitted: 0, rejected: 0, closed: 0, winners: 0, win_rate: 0, total_pnl_usd: 0 };
+    return res.json();
+  },
+
+  async manualExecuteSignal(signalId: number): Promise<{ status: string; message: string }> {
+    const res = await fetch(`${API_BASE}/executions/execute-signal/${signalId}`, {
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Execution failed' }));
+      throw new Error(err.detail || 'Execution failed');
+    }
+    return res.json();
+  },
 };

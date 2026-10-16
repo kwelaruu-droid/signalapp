@@ -22,6 +22,8 @@ class MT5Account(Base):
     last_balance = Column(Float, nullable=True)
     last_connected_at = Column(DateTime, nullable=True)
     error_message = Column(Text, nullable=True)
+    # MetaApi provisioned account UUID (set after first successful connection)
+    metaapi_account_id = Column(String(64), nullable=True, index=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc),
                         onupdate=lambda: datetime.now(timezone.utc))

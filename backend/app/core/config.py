@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     # Initial Admin Seed Password (override in .env in production)
     INITIAL_ADMIN_PASSWORD: str = "AdminPass123!"
 
+    # MetaApi Cloud Token (get free at https://app.metaapi.cloud)
+    # Set this in .env to enable live MT5 trade auto-execution
+    METAAPI_TOKEN: str = ""
+    METAAPI_MAGIC: int = 889911   # unique EA magic number for this app
+
     # CORS
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",

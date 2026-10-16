@@ -130,5 +130,41 @@ export interface MT5Account {
   last_balance?: number;
   last_connected_at?: string;
   error_message?: string;
+  metaapi_account_id?: string;
   created_at: string;
+}
+
+export interface TradeExecution {
+  id: number;
+  signal_id: number;
+  mt5_account_id: number;
+  client_email: string;
+  metaapi_account_id?: string;
+  mt5_ticket?: string;
+  symbol: string;
+  direction: 'BUY' | 'SELL';
+  lot_size: number;
+  entry_price: number;
+  stop_loss: number;
+  take_profit: number;
+  risk_percent: number;
+  balance_at_execution?: number;
+  status: 'PENDING' | 'SUBMITTED' | 'FILLED' | 'REJECTED' | 'CLOSED' | 'CANCELLED';
+  fill_price?: number;
+  close_price?: number;
+  pnl_usd?: number;
+  error_message?: string;
+  created_at: string;
+  filled_at?: string;
+  closed_at?: string;
+}
+
+export interface ExecutionStats {
+  total_executions: number;
+  submitted: number;
+  rejected: number;
+  closed: number;
+  winners: number;
+  win_rate: number;
+  total_pnl_usd: number;
 }

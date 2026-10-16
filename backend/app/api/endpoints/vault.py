@@ -238,8 +238,6 @@ async def test_connection(
     """
     Tests broker connectivity.
     """
-    import httpx
-
     acc = db.query(MT5Account).filter(MT5Account.id == account_id).first()
     if not acc:
         raise HTTPException(status_code=404, detail="Account not found")
@@ -253,34 +251,40 @@ async def test_connection(
     if METAAPI_TOKEN:
         # ── Production: Use MetaApi.cloud REST API ─────────────────────
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                headers = {"auth-token": METAAPI_TOKEN}
-                # Deploy a real-time provisioned account via MetaApi
-                payload = {
-                    "login": acc.mt5_login,
-                    "password": decrypt_password(acc.encrypted_password),
-                    "server": acc.mt5_server,
-                    "platform": "mt5",
-                    "name": acc.nickname or acc.broker_name,
-                    "magic": 889911,
-                    "riskManagementApiEnabled": True,
-                    "copyFactoryResourceSlots": 1,
-                }
-                r = await client.post(
-                    "https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai/users/current/accounts",
-                    headers=headers,
-                    json=payload
-                )
-                if r.status_code in [200, 201]:
-                    data = r.json()
-                    acc.status = "CONNECTED"
-                    acc.last_connected_at = datetime.now(timezone.utc)
-                    acc.error_message = None
-                    acc.last_equity = data.get("equity", 0)
-                    acc.last_balance = data.get("balance", 0)
-                else:
-                    acc.status = "ERROR"
-                    acc.error_message = f"MetaApi error {r.status_code}: {r.text[:120]}"
+            from app.services.metaapi.client import MetaApiClient, MetaApiError
+            client = MetaApiClient(METAAPI_TOKEN)
+            plain_password = decrypt_password(acc.encrypted_password)
+
+            meta_acc = await client.provision_account(
+                login=acc.mt5_login,
+                password=plain_password,
+                server=acc.mt5_server,
+                name=acc.nickname or acc.broker_name,
+                magic=getattr(settings, "METAAPI_MAGIC", 889911),
+            )
+            metaapi_account_id = meta_acc["id"]
+            acc.metaapi_account_id = metaapi_account_id
+
+            # Deploy if not already
+            state = meta_acc.get("state", "")
+            if state not in ("DEPLOYED", "DEPLOYING"):
+                await client.deploy_account(metaapi_account_id)
+                import asyncio
+                await asyncio.sleep(5)
+
+            # Fetch live equity
+            try:
+                info = await client.get_account_info(metaapi_account_id)
+                acc.last_equity = info.get("equity", 0)
+                acc.last_balance = info.get("balance", 0)
+            except MetaApiError:
+                acc.last_equity = meta_acc.get("equity", 0)
+                acc.last_balance = meta_acc.get("balance", 0)
+
+            acc.status = "CONNECTED"
+            acc.last_connected_at = datetime.now(timezone.utc)
+            acc.error_message = None
+
         except Exception as e:
             acc.status = "ERROR"
             acc.error_message = str(e)[:200]

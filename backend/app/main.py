@@ -20,6 +20,7 @@ from app.api.endpoints.admin import router as admin_router
 from app.api.endpoints.copier import router as copier_router
 from app.api.endpoints.vault import router as vault_router
 from app.api.endpoints.misc import news_router, calendar_router, risk_router, alerts_router
+from app.api.endpoints.executions import router as executions_router
 
 # Background Price Streaming Task
 streaming_task = None
@@ -144,24 +145,29 @@ def init_seed_data():
         db.close()
 
 from app.services.market_data.watchdog import run_server_watchdog
+from app.services.metaapi.executor import equity_sync_worker
 
 # Background Tasks
 streaming_task = None
 watchdog_task = None
+equity_sync_task = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     init_seed_data()
-    global streaming_task, watchdog_task
+    global streaming_task, watchdog_task, equity_sync_task
     streaming_task = asyncio.create_task(market_data_broadcaster())
     watchdog_task = asyncio.create_task(run_server_watchdog())
+    equity_sync_task = asyncio.create_task(equity_sync_worker())
     yield
     # Shutdown
     if streaming_task:
         streaming_task.cancel()
     if watchdog_task:
         watchdog_task.cancel()
+    if equity_sync_task:
+        equity_sync_task.cancel()
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi import Request, Response
@@ -205,6 +211,7 @@ app.include_router(risk_router, prefix=f"{settings.API_V1_STR}/risk", tags=["Ris
 app.include_router(alerts_router, prefix=f"{settings.API_V1_STR}/alerts", tags=["Price Alerts"])
 app.include_router(copier_router, prefix=f"{settings.API_V1_STR}/copier", tags=["MT5 Trade Copier"])
 app.include_router(vault_router, prefix=f"{settings.API_V1_STR}/vault", tags=["MT5 Broker Vault"])
+app.include_router(executions_router, prefix=f"{settings.API_V1_STR}/executions", tags=["Trade Executions"])
 
 @app.get("/health")
 def api_health():

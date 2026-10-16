@@ -8,6 +8,7 @@ import {
 import { useAppStore } from '../store/useAppStore';
 import { api } from '../services/api';
 import { MT5Account, BrokerListItem } from '../types';
+import { ExecutionLogPanel } from '../components/ExecutionLogPanel';
 
 // ─── Status Badge Component ────────────────────────────────────────────────
 const StatusBadge: React.FC<{ status: MT5Account['status'] }> = ({ status }) => {
@@ -592,6 +593,13 @@ export const BrokerVaultPage: React.FC = () => {
           onClose={() => setShowModal(false)}
           onAdded={handleAdded}
         />
+      )}
+
+      {/* Execution Log — full width below account cards */}
+      {accounts.length > 0 && (
+        <div className="mt-2">
+          <ExecutionLogPanel />
+        </div>
       )}
     </div>
   );

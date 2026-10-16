@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime, timezone
@@ -9,12 +9,14 @@ from app.models.alert import AdminAuditLog
 from app.schemas.signal import SignalCreate, SignalUpdate, SignalResponse
 from app.api.deps import require_admin
 from app.websockets.hub import ws_manager
+from app.services.metaapi.executor import auto_execute_signal
 
 router = APIRouter()
 
 @router.post("/signals", response_model=SignalResponse)
 async def publish_admin_signal(
     signal_in: SignalCreate,
+    background_tasks: BackgroundTasks,
     current_admin: User = Depends(require_admin),
     db: Session = Depends(get_db)
 ):
@@ -87,6 +89,9 @@ async def publish_admin_signal(
             "source": f"Admin ({current_admin.full_name or 'Senior Desk'})"
         }
     })
+
+    # 🚀 Auto-execute on all connected vault accounts via MetaApi
+    background_tasks.add_task(auto_execute_signal, sig.id)
 
     return sig
 
