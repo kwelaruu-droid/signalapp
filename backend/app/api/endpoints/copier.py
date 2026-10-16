@@ -18,8 +18,11 @@ def verify_copier_key(
 ):
     key = x_copier_key or api_key
     if not settings.COPIER_API_KEY:
-        return True
-    if key != settings.COPIER_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="Trade Copier service is not configured (COPIER_API_KEY unset)"
+        )
+    if not key or key != settings.COPIER_API_KEY:
         raise HTTPException(status_code=401, detail="Invalid Copier API Key")
     return True
 

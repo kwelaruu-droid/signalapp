@@ -49,7 +49,7 @@ def init_seed_data():
         if not admin:
             admin = User(
                 email="admin@forexsignalpro.com",
-                hashed_password=get_password_hash("AdminPass123!"),
+                hashed_password=get_password_hash(settings.INITIAL_ADMIN_PASSWORD),
                 full_name="Chief Market Analyst",
                 role=UserRole.SUPER_ADMIN.value,
                 timezone="Africa/Nairobi",
@@ -163,6 +163,18 @@ async def lifespan(app: FastAPI):
     if watchdog_task:
         watchdog_task.cancel()
 
+from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi import Request, Response
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response: Response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        return response
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
@@ -170,13 +182,15 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS Configuration
+# Security Headers
+app.add_middleware(SecurityHeadersMiddleware)
+
+# Explicit CORS Whitelist
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_origin_regex=r".*",
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 

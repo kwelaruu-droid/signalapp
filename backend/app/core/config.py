@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     # MT5 Trade Copier API Key
     COPIER_API_KEY: str = "fsp-secret-copier-key-998811"
     
+    # Initial Admin Seed Password (override in .env in production)
+    INITIAL_ADMIN_PASSWORD: str = "AdminPass123!"
+
     # CORS
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",
@@ -61,8 +64,7 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5173",
         "http://127.0.0.1:8000",
         "capacitor://localhost",
-        "http://localhost",
-        "*"
+        "http://localhost"
     ]
     
     model_config = SettingsConfigDict(

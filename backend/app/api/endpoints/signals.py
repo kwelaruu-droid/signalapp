@@ -42,12 +42,27 @@ def get_signal_detail(signal_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Signal not found")
     return signal
 
+import time
+
+_last_scan_timestamp = 0.0
+
 @router.post("/auto-scan", response_model=List[SignalResponse])
 async def trigger_auto_signal_scan(db: Session = Depends(get_db)):
     """
     Executes algorithmic confluence analysis across all tracked instruments.
     Generates signals if entry rules and ATR validation filters are satisfied.
+    Rate limited to 1 scan per 10 seconds to protect compute resources.
     """
+    global _last_scan_timestamp
+    now = time.time()
+    if now - _last_scan_timestamp < 10.0:
+        remaining = int(10.0 - (now - _last_scan_timestamp))
+        raise HTTPException(
+            status_code=429,
+            detail=f"Analysis engine cooling down. Please wait {remaining}s before initiating another scan."
+        )
+    _last_scan_timestamp = now
+
     instruments = ["EUR/USD", "GBP/USD", "USD/JPY", "XAU/USD", "USD/CHF", "AUD/USD", "USD/CAD", "BTC/USD"]
     new_signals = []
 

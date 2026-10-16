@@ -12,29 +12,36 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Header, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
+from cryptography.fernet import Fernet
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.mt5_account import MT5Account
+from app.models.user import User, UserRole
+from app.api.deps import get_current_user
 
 router = APIRouter()
 
-# ─── Simple XOR + Base64 encryption (no extra dependencies) ───────────────────
-# For production, replace with Fernet (cryptography package) or AWS KMS.
-def _derive_key(salt: str = "") -> bytes:
-    raw = (settings.SECRET_KEY + salt + "MT5_VAULT_V1").encode()
-    return hashlib.sha256(raw).digest()
+# ─── Authenticated AES-128-CBC + HMAC-SHA256 (Fernet) Encryption ─────────────
+def _get_fernet() -> Fernet:
+    key_bytes = hashlib.sha256((settings.SECRET_KEY + "MT5_VAULT_FERNET_SALT_V2").encode()).digest()
+    fernet_key = base64.urlsafe_b64encode(key_bytes)
+    return Fernet(fernet_key)
 
 def encrypt_password(plain: str) -> str:
-    key = _derive_key()
-    data = plain.encode("utf-8")
-    encrypted = bytes(b ^ key[i % len(key)] for i, b in enumerate(data))
-    return base64.urlsafe_b64encode(encrypted).decode()
+    f = _get_fernet()
+    return f.encrypt(plain.encode("utf-8")).decode("utf-8")
 
 def decrypt_password(enc: str) -> str:
-    key = _derive_key()
-    data = base64.urlsafe_b64decode(enc.encode())
-    return bytes(b ^ key[i % len(key)] for i, b in enumerate(data)).decode("utf-8")
+    try:
+        f = _get_fernet()
+        return f.decrypt(enc.encode("utf-8")).decode("utf-8")
+    except Exception:
+        # Fallback for backward compatibility with legacy XOR entries
+        raw = (settings.SECRET_KEY + "" + "MT5_VAULT_V1").encode()
+        legacy_key = hashlib.sha256(raw).digest()
+        data = base64.urlsafe_b64decode(enc.encode())
+        return bytes(b ^ legacy_key[i % len(legacy_key)] for i, b in enumerate(data)).decode("utf-8")
 
 # ─── Known MT5 brokers for client dropdown ───────────────────────────────────
 KNOWN_BROKERS = [
@@ -122,8 +129,14 @@ def list_known_brokers():
     return KNOWN_BROKERS
 
 @router.post("/accounts", response_model=MT5AccountResponse)
-def add_broker_account(payload: MT5AccountCreate, db: Session = Depends(get_db)):
+def add_broker_account(
+    payload: MT5AccountCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """Client submits broker credentials — password is encrypted and stored securely"""
+    owner_email = current_user.email
+
     # Prevent duplicate same login on same server
     existing = db.query(MT5Account).filter(
         MT5Account.mt5_login == payload.mt5_login,
@@ -133,7 +146,7 @@ def add_broker_account(payload: MT5AccountCreate, db: Session = Depends(get_db))
         raise HTTPException(status_code=409, detail="This MT5 account is already connected.")
 
     acc = MT5Account(
-        client_email=payload.client_email,
+        client_email=owner_email,
         nickname=payload.nickname or f"{payload.broker_name} #{payload.mt5_login[-4:]}",
         broker_name=payload.broker_name,
         mt5_server=payload.mt5_server,
@@ -147,24 +160,43 @@ def add_broker_account(payload: MT5AccountCreate, db: Session = Depends(get_db))
     db.commit()
     db.refresh(acc)
 
-    # Trigger a quick async connection test in background
     return _to_response(acc)
 
 @router.get("/accounts", response_model=List[MT5AccountResponse])
-def list_accounts(client_email: Optional[str] = Query(None), db: Session = Depends(get_db)):
-    """Returns all linked broker accounts for a client email, or all accounts for admin"""
+def list_accounts(
+    client_email: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Returns linked broker accounts for the authenticated user, or all accounts for admin"""
     query = db.query(MT5Account)
-    if client_email:
+    is_admin = current_user.role in [UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value]
+
+    if not is_admin:
+        # Regular users can strictly only access their own accounts
+        query = query.filter(MT5Account.client_email == current_user.email)
+    elif client_email:
         query = query.filter(MT5Account.client_email == client_email)
+
     accounts = query.order_by(MT5Account.created_at.desc()).all()
     return [_to_response(a) for a in accounts]
 
 @router.patch("/accounts/{account_id}", response_model=MT5AccountResponse)
-def update_account(account_id: int, payload: MT5AccountUpdate, db: Session = Depends(get_db)):
+def update_account(
+    account_id: int,
+    payload: MT5AccountUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """Update risk settings or toggle auto-trading on/off"""
     acc = db.query(MT5Account).filter(MT5Account.id == account_id).first()
     if not acc:
         raise HTTPException(status_code=404, detail="Account not found")
+
+    is_admin = current_user.role in [UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value]
+    if not is_admin and acc.client_email != current_user.email:
+        raise HTTPException(status_code=403, detail="Not authorized to modify this broker account")
+
     if payload.nickname is not None:
         acc.nickname = payload.nickname
     if payload.risk_percent is not None:
@@ -179,26 +211,42 @@ def update_account(account_id: int, payload: MT5AccountUpdate, db: Session = Dep
     return _to_response(acc)
 
 @router.delete("/accounts/{account_id}")
-def remove_account(account_id: int, db: Session = Depends(get_db)):
+def remove_account(
+    account_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """Permanently remove a linked broker account"""
     acc = db.query(MT5Account).filter(MT5Account.id == account_id).first()
     if not acc:
         raise HTTPException(status_code=404, detail="Account not found")
+
+    is_admin = current_user.role in [UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value]
+    if not is_admin and acc.client_email != current_user.email:
+        raise HTTPException(status_code=403, detail="Not authorized to remove this broker account")
+
     db.delete(acc)
     db.commit()
     return {"status": "removed", "id": account_id}
 
 @router.post("/accounts/{account_id}/test-connection", response_model=MT5AccountResponse)
-async def test_connection(account_id: int, db: Session = Depends(get_db)):
+async def test_connection(
+    account_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """
-    Tests broker connectivity. In production, integrate MetaApi.cloud here.
-    Returns simulated connection confirmation with equity/balance if MetaApi is not configured.
+    Tests broker connectivity.
     """
     import httpx
 
     acc = db.query(MT5Account).filter(MT5Account.id == account_id).first()
     if not acc:
         raise HTTPException(status_code=404, detail="Account not found")
+
+    is_admin = current_user.role in [UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value]
+    if not is_admin and acc.client_email != current_user.email:
+        raise HTTPException(status_code=403, detail="Not authorized to access this broker account")
 
     METAAPI_TOKEN = getattr(settings, "METAAPI_TOKEN", "")
 

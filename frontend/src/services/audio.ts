@@ -1,6 +1,17 @@
 class AudioFeedbackService {
   private ctx: AudioContext | null = null;
-  public enabled: boolean = true;
+  public enabled: boolean = typeof window !== 'undefined'
+    ? (() => {
+        try {
+          const raw = localStorage.getItem('fsp-prefs');
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed?.state?.soundEnabled !== undefined) return Boolean(parsed.state.soundEnabled);
+          }
+        } catch { /* ignore */ }
+        return true;
+      })()
+    : true;
 
   private initContext() {
     if (!this.ctx && typeof window !== 'undefined') {

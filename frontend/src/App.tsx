@@ -162,12 +162,16 @@ export const App: React.FC = () => {
     });
   }, [quotes]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── WebSocket + Polling Fallback ──────────────────────────────
+  // ── WebSocket + Polling Fallback (Exponential Backoff) ────────
   useEffect(() => {
     let ws: WebSocket | null = null;
     let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+    let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+    let retryDelay = 1000;
+    let isUnmounted = false;
 
     const connectWs = () => {
+      if (isUnmounted) return;
       try {
         const envBase = (import.meta as any).env?.VITE_API_BASE_URL;
         let wsUrl = '';
@@ -185,6 +189,10 @@ export const App: React.FC = () => {
           wsUrl = `${protocol}//${window.location.host}/ws/feed`;
         }
         ws = new WebSocket(wsUrl);
+
+        ws.onopen = () => {
+          retryDelay = 1000;
+        };
 
         ws.onmessage = (event) => {
           try {
@@ -204,8 +212,17 @@ export const App: React.FC = () => {
         };
 
         ws.onerror = () => ws?.close();
-        ws.onclose = () => setTimeout(connectWs, 3000);
-      } catch { /* ignore */ }
+        ws.onclose = () => {
+          if (isUnmounted) return;
+          reconnectTimeout = setTimeout(connectWs, retryDelay);
+          retryDelay = Math.min(16000, retryDelay * 2);
+        };
+      } catch {
+        if (!isUnmounted) {
+          reconnectTimeout = setTimeout(connectWs, retryDelay);
+          retryDelay = Math.min(16000, retryDelay * 2);
+        }
+      }
     };
 
     connectWs();
@@ -216,8 +233,10 @@ export const App: React.FC = () => {
     }, 2500);
 
     return () => {
+      isUnmounted = true;
       ws?.close();
       if (fallbackInterval) clearInterval(fallbackInterval);
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
