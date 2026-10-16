@@ -154,9 +154,10 @@ export const App: React.FC = () => {
       } else if (hitSl) {
         const lossPips = -Math.round(Math.abs(s.entry_price - s.stop_loss) / pipUnit * 10) / 10;
         updateSignalStatus(s.id, 'STOPPED_OUT', lossPips);
+        api.closeSignal(s.id, 'STOPPED_OUT', lossPips).catch(() => {});
         soundFx.playAlertBell();
         notifService.hapticSignal();
-        addToast('🛑 Stop Loss Hit', `${s.symbol} touched SL at ${s.stop_loss} (${lossPips} pips). Ready to be closed.`, 'error');
+        addToast('🛑 Stop Loss Hit', `${s.symbol} stopped out at ${s.stop_loss} (${lossPips} pips locked).`, 'error');
       }
     });
   }, [quotes]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -190,6 +191,8 @@ export const App: React.FC = () => {
             const msg = JSON.parse(event.data);
             if (msg.type === 'QUOTES_UPDATE' && Array.isArray(msg.data)) {
               setQuotes(msg.data);
+            } else if (msg.type === 'SIGNAL_OUTCOME' && msg.data) {
+              updateSignalStatus(msg.data.id, msg.data.status, msg.data.pnl_pips);
             } else if (msg.type === 'NEW_SIGNAL' || msg.type === 'NEW_ADMIN_SIGNAL') {
               soundFx.playSignalChime();
               notifService.signalAlert(msg.data.symbol, msg.data.direction, msg.data.confidence);

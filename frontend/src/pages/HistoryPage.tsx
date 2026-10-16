@@ -65,17 +65,21 @@ export const HistoryPage: React.FC = () => {
     const pipSize = getPipSize(s.symbol);
     const isBuy = s.direction === 'BUY';
 
+    // Check if stopped out (either status or live price breached SL)
+    const isStopped = s.status === 'STOPPED_OUT' || (s.stop_loss ? ((isBuy && livePrice <= s.stop_loss) || (!isBuy && livePrice >= s.stop_loss)) : false);
+    const stopLossPips = -Math.round((Math.abs(s.entry_price - s.stop_loss) / pipSize) * 10) / 10;
+
     // Check each target milestone from highest (TP3) down to SL
     const hitTp3 = (s.take_profit_3 && ((isBuy && livePrice >= s.take_profit_3) || (!isBuy && livePrice <= s.take_profit_3))) || s.status === 'HIT_TP3';
     const hitTp2 = (s.take_profit_2 && ((isBuy && livePrice >= s.take_profit_2) || (!isBuy && livePrice <= s.take_profit_2))) || s.status === 'HIT_TP2';
     const hitTp1 = ((isBuy && livePrice >= s.take_profit_1) || (!isBuy && livePrice <= s.take_profit_1)) || s.status === 'HIT_TP1';
-    const hitSl = ((isBuy && livePrice <= s.stop_loss) || (!isBuy && livePrice >= s.stop_loss)) || s.status === 'STOPPED_OUT';
+    const hitSl = isStopped;
 
-    // Select the highest target reached: TP3 > TP2 > TP1
+    // Prioritize stopped out or highest target reached
     let exitTargetPrice = livePrice;
     let highestHitStatus: TradingSignal['status'] = s.status;
 
-    if (hitSl) {
+    if (isStopped) {
       exitTargetPrice = s.stop_loss;
       highestHitStatus = 'STOPPED_OUT';
     } else if (hitTp3) {
@@ -89,11 +93,15 @@ export const HistoryPage: React.FC = () => {
       highestHitStatus = 'HIT_TP1';
     }
 
-    // Pips calculated against the highest target hit (or live floating if active)
+    // Pips calculated against spot stopped out (or highest target hit, or live floating if active)
     let livePips = 0;
-    if (s.status !== 'ACTIVE' && s.pnl_pips !== 0 && s.pnl_pips !== undefined) {
+    if (s.status === 'STOPPED_OUT') {
+      livePips = (s.pnl_pips !== undefined && s.pnl_pips !== 0) ? s.pnl_pips : stopLossPips;
+    } else if (isStopped) {
+      livePips = stopLossPips;
+    } else if (s.status !== 'ACTIVE' && s.pnl_pips !== 0 && s.pnl_pips !== undefined) {
       livePips = s.pnl_pips;
-    } else if (hitTp3 || hitTp2 || hitTp1 || hitSl) {
+    } else if (hitTp3 || hitTp2 || hitTp1) {
       livePips = isBuy
         ? (exitTargetPrice - s.entry_price) / pipSize
         : (s.entry_price - exitTargetPrice) / pipSize;
@@ -442,7 +450,13 @@ export const HistoryPage: React.FC = () => {
                         {isWin ? '+' : ''}{s.livePips} pips
                       </div>
                       <div className="text-[9px] text-slate-500 font-sans">
-                        {s.highestHitStatus.includes('HIT_TP') ? `Locked at ${s.highestHitStatus.replace('HIT_', '')}` : isWin ? 'Floating Gain' : 'Floating Retracement'}
+                        {s.highestHitStatus === 'STOPPED_OUT' || s.status === 'STOPPED_OUT'
+                          ? 'Stopped at SL'
+                          : s.highestHitStatus.includes('HIT_TP')
+                          ? `Locked at ${s.highestHitStatus.replace('HIT_', '')}`
+                          : isWin
+                          ? 'Floating Gain'
+                          : 'Floating Retracement'}
                       </div>
                     </td>
 

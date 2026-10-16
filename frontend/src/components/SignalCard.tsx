@@ -66,17 +66,27 @@ export const SignalCard: React.FC<SignalCardProps> = ({ signal, showOutcomeContr
 
   const currentQuote = quotes[signal.symbol];
   const livePrice = currentQuote ? currentQuote.mid : signal.entry_price;
-  const liveFloatingPips = isBuy 
+
+  // Stopped out detection: status is STOPPED_OUT or price breached stop loss
+  const isStopped = signal.status === 'STOPPED_OUT' || (signal.stop_loss ? ((isBuy && livePrice <= signal.stop_loss) || (!isBuy && livePrice >= signal.stop_loss)) : false);
+
+  // Exact stop loss distance in pips (spot stopped out)
+  const stopLossPips = -Math.round((Math.abs(signal.entry_price - signal.stop_loss) / pipUnit) * 10) / 10;
+
+  // Live floating pips: when stopped out, strictly freeze at spot stopped out
+  const liveFloatingPips = isStopped
+    ? (signal.pnl_pips !== undefined && signal.pnl_pips !== 0 ? signal.pnl_pips : stopLossPips)
+    : isBuy 
     ? Math.round(((livePrice - signal.entry_price) / pipUnit) * 10) / 10
     : Math.round(((signal.entry_price - livePrice) / pipUnit) * 10) / 10;
 
   const hitTp3 = (signal.take_profit_3 && ((isBuy && livePrice >= signal.take_profit_3) || (!isBuy && livePrice <= signal.take_profit_3))) || signal.status === 'HIT_TP3';
   const hitTp2 = (signal.take_profit_2 && ((isBuy && livePrice >= signal.take_profit_2) || (!isBuy && livePrice <= signal.take_profit_2))) || signal.status === 'HIT_TP2';
   const hitTp1 = (isBuy && livePrice >= signal.take_profit_1) || (!isBuy && livePrice <= signal.take_profit_1) || signal.status === 'HIT_TP1';
-  const hitSl = (isBuy && livePrice <= signal.stop_loss) || (!isBuy && livePrice >= signal.stop_loss) || signal.status === 'STOPPED_OUT';
+  const hitSl = isStopped;
 
-  // Prioritize the highest reached target: TP3 > TP2 > TP1
-  const bestTargetStatus: TradingSignal['status'] = hitSl
+  // Prioritize stopped out or highest reached target: SL > TP3 > TP2 > TP1
+  const bestTargetStatus: TradingSignal['status'] = isStopped
     ? 'STOPPED_OUT'
     : hitTp3
     ? 'HIT_TP3'
@@ -86,18 +96,20 @@ export const SignalCard: React.FC<SignalCardProps> = ({ signal, showOutcomeContr
     ? 'HIT_TP1'
     : 'CLOSED';
 
-  const exitTargetPrice = hitTp3
+  const exitTargetPrice = isStopped
+    ? signal.stop_loss
+    : hitTp3
     ? signal.take_profit_3!
     : hitTp2
     ? signal.take_profit_2!
     : hitTp1
     ? signal.take_profit_1
-    : hitSl
-    ? signal.stop_loss
     : livePrice;
 
-  // Realized pips calculated from the furthest target reached
-  const highestTargetPips = isBuy 
+  // Realized pips calculated from the spot stopped out or furthest target reached
+  const highestTargetPips = isStopped
+    ? (signal.pnl_pips !== undefined && signal.pnl_pips !== 0 ? signal.pnl_pips : stopLossPips)
+    : isBuy 
     ? Math.round(((exitTargetPrice - signal.entry_price) / pipUnit) * 10) / 10
     : Math.round(((signal.entry_price - exitTargetPrice) / pipUnit) * 10) / 10;
 
@@ -124,7 +136,9 @@ export const SignalCard: React.FC<SignalCardProps> = ({ signal, showOutcomeContr
 
   const handleCloseAndLock = async (targetStatus?: TradingSignal['status']) => {
     const finalStatus = targetStatus || bestTargetStatus;
-    const finalPnl = (finalStatus !== 'CLOSED' && (hitTp1 || hitTp2 || hitTp3 || hitSl)) 
+    const finalPnl = (finalStatus === 'STOPPED_OUT' || isStopped)
+      ? (signal.pnl_pips !== undefined && signal.pnl_pips !== 0 ? signal.pnl_pips : stopLossPips)
+      : (finalStatus !== 'CLOSED' && (hitTp1 || hitTp2 || hitTp3)) 
       ? highestTargetPips 
       : liveFloatingPips;
 
@@ -133,7 +147,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({ signal, showOutcomeContr
     notifService.hapticSignal();
     addToast(
       finalStatus === 'STOPPED_OUT' ? 'Position Stopped Out' : `🎯 Target Hit (${finalStatus})`,
-      `${signal.symbol} closed with ${finalPnl >= 0 ? '+' : ''}${finalPnl} pips locked at highest target!`,
+      `${signal.symbol} closed with ${finalPnl >= 0 ? '+' : ''}${finalPnl} pips locked at ${finalStatus === 'STOPPED_OUT' ? 'Stop Loss' : 'highest target'}!`,
       finalPnl >= 0 ? 'success' : 'alert'
     );
     try {
@@ -188,13 +202,36 @@ export const SignalCard: React.FC<SignalCardProps> = ({ signal, showOutcomeContr
           <span className={`inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full tracking-wider ${
             signal.status === 'ACTIVE' 
               ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' 
+              : signal.status === 'STOPPED_OUT'
+              ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
               : 'bg-slate-800 text-slate-500'
           }`}>
             {signal.status === 'ACTIVE' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
+            {signal.status === 'STOPPED_OUT' && <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />}
             {signal.status}
           </span>
         </div>
       </div>
+
+      {/* ── Stopped Out Frozen Banner ──────────────── */}
+      {signal.status === 'STOPPED_OUT' && (
+        <div className="mb-3.5 p-3 rounded-xl border flex items-center justify-between gap-2.5 bg-rose-500/15 border-rose-500/35 text-rose-200 shadow-rose-500/10">
+          <div className="flex items-center gap-2 min-w-0">
+            <XCircle size={17} className="text-rose-400 shrink-0" />
+            <div className="text-xs min-w-0">
+              <span className="font-black tracking-wide block truncate text-rose-300">
+                POSITION STOPPED OUT
+              </span>
+              <span className="text-[10px] text-slate-300 font-mono">
+                Stopped at {signal.stop_loss} · Frozen at {signal.pnl_pips !== undefined && signal.pnl_pips !== 0 ? signal.pnl_pips : stopLossPips} pips
+              </span>
+            </div>
+          </div>
+          <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 shrink-0">
+            {signal.pnl_pips !== undefined && signal.pnl_pips !== 0 ? signal.pnl_pips : stopLossPips}p
+          </span>
+        </div>
+      )}
 
       {/* ── Ready to Close / Target Reached Banner ──────────────── */}
       {isReadyToClose && (
@@ -210,7 +247,9 @@ export const SignalCard: React.FC<SignalCardProps> = ({ signal, showOutcomeContr
                 {hitSl ? 'STOP LOSS HIT' : hitTp3 ? '🎯 TARGET 3 HIT (RUNNER)' : hitTp2 ? '🎯 TARGET 2 REACHED' : '🎯 TARGET 1 HIT!'}
               </span>
               <span className="text-[10px] text-slate-300 font-mono">
-                {highestTargetPips >= 0 ? `+${highestTargetPips}` : highestTargetPips} pips at {bestTargetStatus} · Ready to be closed
+                {hitSl 
+                  ? `Stopped at ${signal.stop_loss} (${stopLossPips} pips locked) · Ready to be closed`
+                  : `${highestTargetPips >= 0 ? `+${highestTargetPips}` : highestTargetPips} pips at ${bestTargetStatus} · Ready to be closed`}
               </span>
             </div>
           </div>
@@ -223,7 +262,7 @@ export const SignalCard: React.FC<SignalCardProps> = ({ signal, showOutcomeContr
             }`}
           >
             <CheckCheck size={14} />
-            <span>Lock &amp; Close ({bestTargetStatus === 'HIT_TP3' ? 'TP3' : bestTargetStatus === 'HIT_TP2' ? 'TP2' : bestTargetStatus === 'HIT_TP1' ? 'TP1' : 'Trade'})</span>
+            <span>Lock &amp; Close ({bestTargetStatus === 'STOPPED_OUT' ? 'SL' : bestTargetStatus === 'HIT_TP3' ? 'TP3' : bestTargetStatus === 'HIT_TP2' ? 'TP2' : bestTargetStatus === 'HIT_TP1' ? 'TP1' : 'Trade'})</span>
           </button>
         </div>
       )}

@@ -30,28 +30,40 @@ export const DashboardPage: React.FC = () => {
 
     signals.forEach((s) => {
       const isJpy = s.symbol.includes('JPY');
-      const pipSize = isJpy ? 0.01 : 0.0001;
+      const isGold = s.symbol.includes('XAU');
+      const isCrypto = s.symbol.includes('BTC') || s.symbol.includes('ETH');
+      const pipSize = isJpy ? 0.01 : isGold ? 0.10 : isCrypto ? 1.0 : 0.0001;
       const quote = quotes[s.symbol];
       const livePrice = quote?.bid || s.entry_price;
       const isBuy = s.direction === 'BUY';
 
+      const isStopped = s.status === 'STOPPED_OUT' || (s.stop_loss ? (isBuy ? livePrice <= s.stop_loss : livePrice >= s.stop_loss) : false);
+      const stopLossPips = -Math.round((Math.abs(s.entry_price - s.stop_loss) / pipSize) * 10) / 10;
+
       const hitTp3 = s.take_profit_3 ? (isBuy ? livePrice >= s.take_profit_3 : livePrice <= s.take_profit_3) : false;
       const hitTp2 = s.take_profit_2 ? (isBuy ? livePrice >= s.take_profit_2 : livePrice <= s.take_profit_2) : false;
       const hitTp1 = s.take_profit_1 ? (isBuy ? livePrice >= s.take_profit_1 : livePrice <= s.take_profit_1) : false;
-      const hitSl = s.stop_loss ? (isBuy ? livePrice <= s.stop_loss : livePrice >= s.stop_loss) : false;
 
       let exitPrice = livePrice;
-      if (hitTp3 && s.take_profit_3) exitPrice = s.take_profit_3;
-      else if (hitTp2 && s.take_profit_2) exitPrice = s.take_profit_2;
-      else if (hitTp1 && s.take_profit_1) exitPrice = s.take_profit_1;
-      else if (hitSl && s.stop_loss) exitPrice = s.stop_loss;
+      if (isStopped && s.stop_loss) {
+        exitPrice = s.stop_loss;
+      } else if (hitTp3 && s.take_profit_3) {
+        exitPrice = s.take_profit_3;
+      } else if (hitTp2 && s.take_profit_2) {
+        exitPrice = s.take_profit_2;
+      } else if (hitTp1 && s.take_profit_1) {
+        exitPrice = s.take_profit_1;
+      }
 
       let pips = 0;
-      if (s.status !== 'ACTIVE' && s.pnl_pips !== undefined && s.pnl_pips !== 0) {
+      if (isStopped) {
+        pips = s.pnl_pips !== undefined && s.pnl_pips !== 0 ? s.pnl_pips : stopLossPips;
+      } else if (s.status !== 'ACTIVE' && s.pnl_pips !== undefined && s.pnl_pips !== 0) {
         pips = s.pnl_pips;
       } else {
         pips = isBuy ? (exitPrice - s.entry_price) / pipSize : (s.entry_price - exitPrice) / pipSize;
       }
+      pips = Math.round(pips * 10) / 10;
 
       if (pips > 0) {
         grossWin += pips;

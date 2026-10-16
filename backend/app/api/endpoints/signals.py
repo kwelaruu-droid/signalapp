@@ -132,18 +132,19 @@ def get_signal_performance_stats(db: Session = Depends(get_db)):
     total_pnl = 0.0
 
     for s in all_signals:
-        pips = s.pnl_pips or 0.0
-        if pips == 0.0 and s.status != "ACTIVE":
-            pip_size = 0.01 if "JPY" in s.symbol else (0.10 if "XAU" in s.symbol else (1.0 if "BTC" in s.symbol or "ETH" in s.symbol else 0.0001))
-            is_buy = s.direction == "BUY"
-            if s.status == "HIT_TP3" and s.take_profit_3:
-                pips = round((s.take_profit_3 - s.entry_price) / pip_size if is_buy else (s.entry_price - s.take_profit_3) / pip_size, 1)
-            elif s.status == "HIT_TP2" and s.take_profit_2:
-                pips = round((s.take_profit_2 - s.entry_price) / pip_size if is_buy else (s.entry_price - s.take_profit_2) / pip_size, 1)
-            elif s.status == "HIT_TP1" and s.take_profit_1:
-                pips = round((s.take_profit_1 - s.entry_price) / pip_size if is_buy else (s.entry_price - s.take_profit_1) / pip_size, 1)
-            elif s.status == "STOPPED_OUT" and s.stop_loss:
-                pips = round((s.stop_loss - s.entry_price) / pip_size if is_buy else (s.entry_price - s.stop_loss) / pip_size, 1)
+        pip_size = 0.01 if "JPY" in s.symbol else (0.10 if "XAU" in s.symbol else (1.0 if "BTC" in s.symbol or "ETH" in s.symbol else 0.0001))
+        is_buy = s.direction == "BUY"
+        if s.status == "STOPPED_OUT" and s.stop_loss:
+            pips = s.pnl_pips if (s.pnl_pips is not None and s.pnl_pips != 0.0) else round((s.stop_loss - s.entry_price) / pip_size if is_buy else (s.entry_price - s.stop_loss) / pip_size, 1)
+        else:
+            pips = s.pnl_pips or 0.0
+            if pips == 0.0 and s.status != "ACTIVE":
+                if s.status == "HIT_TP3" and s.take_profit_3:
+                    pips = round((s.take_profit_3 - s.entry_price) / pip_size if is_buy else (s.entry_price - s.take_profit_3) / pip_size, 1)
+                elif s.status == "HIT_TP2" and s.take_profit_2:
+                    pips = round((s.take_profit_2 - s.entry_price) / pip_size if is_buy else (s.entry_price - s.take_profit_2) / pip_size, 1)
+                elif s.status == "HIT_TP1" and s.take_profit_1:
+                    pips = round((s.take_profit_1 - s.entry_price) / pip_size if is_buy else (s.entry_price - s.take_profit_1) / pip_size, 1)
 
         total_pnl += pips
         if pips > 0:
@@ -205,7 +206,14 @@ async def close_signal_endpoint(
     elif "BTC" in sig.symbol or "ETH" in sig.symbol:
         pip_size = 1.0
 
-    if pnl is not None:
+    if status == "STOPPED_OUT":
+        # When stopped out, stop counting pips at spot it was stopped (the stop loss level)
+        exit_price = sig.stop_loss
+        if sig.direction == "BUY":
+            realized_pips = round((exit_price - sig.entry_price) / pip_size, 1)
+        else:
+            realized_pips = round((sig.entry_price - exit_price) / pip_size, 1)
+    elif pnl is not None:
         realized_pips = pnl
     else:
         # Determine exit price based on the highest target hit
@@ -215,8 +223,6 @@ async def close_signal_endpoint(
             exit_price = sig.take_profit_2
         elif status == "HIT_TP1":
             exit_price = sig.take_profit_1
-        elif status == "STOPPED_OUT":
-            exit_price = sig.stop_loss
         else:
             exit_price = curr_price
 
